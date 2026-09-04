@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+/* Theme overrides for dark navy scheme (only colors; logic unchanged) */
+/* Map commonly-used Tailwind bg utilities to the new palette */
+.bg-sky-200 { background-color: #0f1724 !important; color: #cbd5e1 !important; }
+.bg-sky-100 { background-color: #0b1220 !important; color: #cbd5e1 !important; }
+.bg-blue-700 { background-color: #38bdf8 !important; }
+.bg-green-600 { background-color: #60a5fa !important; }
+.bg-yellow-300 { background-color: #94a3b8 !important; }
+.bg-red-500 { background-color: #ef4444 !important; }
+
+/* Make utility text-black readable on dark card backgrounds */
+.text-black { color: #e6eef8 !important; }
+
+/* Slightly soften hard borders when on dark cards */
+.border-black { border-color: #0b2133 !important; }
+
