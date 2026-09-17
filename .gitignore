@@ -1,0 +1,8 @@
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# STM32CubeIDE build output
+STM32/Debug/
+STM32/Release/
