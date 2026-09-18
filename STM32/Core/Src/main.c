@@ -3364,6 +3364,12 @@ uint8_t motorPidReverse(MotorCommand_t cmd, uint8_t isStateChanged) {
 // ORIGINAL MOTORPIDREVERSE MIG
 uint8_t motorPidReverse(MotorCommand_t cmd, uint8_t isStateChanged)
 {
+	static uint32_t lastSteerUpdate = 0;
+
+	const float GYRO_KP_REVERSE = 3.5f;
+	const float GYRO_KD_REVERSE = 0.15f;
+	const float MAX_SERVO_CORRECTION_REVERSE = 8.0f;
+
     static float totalDistanceA = 0.0f;
     static float totalDistanceB = 0.0f;
     static uint32_t lastEncoderA = 0;
@@ -3375,12 +3381,19 @@ uint8_t motorPidReverse(MotorCommand_t cmd, uint8_t isStateChanged)
 
     if (isStateChanged)
     {
-        // headingIntegral = 0.0f;
         headingIntegral = -110.0f;
         prevHeadingError = 0.0f;
         isFrontCalib = 0;
-        isTurning = 0;
-        setServoAngle(SERVO_CENTER + 2.5f); // Ensure wheels are straight
+
+        /*
+         * Track actual heading during reverse as well.
+         */
+        currentAngle = 0.0f;
+        lastAngleUpdateTime = HAL_GetTick();
+        isTurning = 1;
+        lastSteerUpdate = HAL_GetTick();
+
+        setServoAngle(SERVO_CENTER + 2.5f);
 
         totalDistanceA = 0.0f;
         totalDistanceB = 0.0f;
@@ -3433,11 +3446,26 @@ uint8_t motorPidReverse(MotorCommand_t cmd, uint8_t isStateChanged)
     float distanceB = (float)diffB / ENCODER_COUNTS_PER_REVOLUTION * WHEEL_CIRCUMFERENCE_CM;
     totalDistanceB += distanceB;
 
-    // --- Stopping Logic ---
-    if (hasTargetDistance && totalDistanceA >= targetDistance - 0.8f)
+    if (hasTargetDistance &&
+        totalDistanceA >= targetDistance - 0.8f)
     {
         motorStop();
+
+        /*
+         * Keep gyro tracking while the chassis finishes coasting.
+         */
+        osDelay(100);
+
+        /*
+         * Save the actual heading change during reverse.
+         */
+        globalHeading += currentAngle;
+
+        isTurning = 0;
+        isFrontCalib = 0;
+
         setServoAngle(SERVO_CENTER);
+
         return 1;
     }
 
@@ -3485,6 +3513,56 @@ uint8_t motorPidReverse(MotorCommand_t cmd, uint8_t isStateChanged)
     // Reduce A speed and increase B speed to straighten out.
     speedA -= (int32_t)headingCorrection;
     speedB += (int32_t)headingCorrection;
+
+    /*
+     * Gyro steering correction while reversing
+     */
+    uint32_t now = HAL_GetTick();
+
+    if ((now - lastSteerUpdate) >= 20)
+    {
+        float absoluteHeading =
+            globalHeading + currentAngle;
+
+        float headingError =
+            absoluteHeading - desiredHeading;
+
+        /*
+         * Reverse steering acts opposite to forward steering.
+         */
+        float servoCorrection =
+            -(
+                (GYRO_KP_REVERSE * headingError) +
+                (GYRO_KD_REVERSE * gyro_z_dps)
+            );
+
+        if (servoCorrection > MAX_SERVO_CORRECTION_REVERSE)
+        {
+            servoCorrection =
+                MAX_SERVO_CORRECTION_REVERSE;
+        }
+
+        if (servoCorrection < -MAX_SERVO_CORRECTION_REVERSE)
+        {
+            servoCorrection =
+                -MAX_SERVO_CORRECTION_REVERSE;
+        }
+
+        int servoPwm =
+            (int)(
+                SERVO_CENTER +
+                2.5f +
+                servoCorrection
+            );
+
+        __HAL_TIM_SET_COMPARE(
+            &htim12,
+            TIM_CHANNEL_1,
+            servoPwm
+        );
+
+        lastSteerUpdate = now;
+    }
 
     // --- Output Constraints ---
     if (speedA > 7199)
@@ -3995,17 +4073,38 @@ uint8_t motorTurn(MotorCommand_t cmd, uint8_t isStateChanged)
     {
         motorStop();
 
-        // Allow IMU to capture the final settling motion
+        /*
+         * Keep measuring the final coast.
+         */
         osDelay(150);
 
+        /*
+         * The commanded turn did NOT complete, but we must preserve
+         * whatever heading the robot actually reached.
+         */
+        float timeoutAngle = currentAngle;
+
+        globalHeading += timeoutAngle;
+
+        /*
+         * Since the requested target was not reached, the actual
+         * current heading becomes our new baseline.
+         */
+        desiredHeading = globalHeading;
+
+        currentAngle = 0.0f;
         isTurning = 0;
+        isFrontCalib = 0;
 
         setServoAngle(SERVO_CENTER);
 
         sprintf(buf1, "TURN TIMEOUT");
-        sprintf(buf2, "Angle: %.2f", currentAngle);
+        sprintf(buf2, "Angle: %.2f", timeoutAngle);
 
-        return 1;
+        /*
+         * 2 = timeout / failure
+         */
+        return 2;
     }
 
     int turnSpeed = cmd.param1Speed;
@@ -8735,26 +8834,109 @@ void show(void *argument)
 void motor(void *argument)
 {
     /* USER CODE BEGIN motor */
-	MotorCommand_t cmd;
+	MotorCommand_t cmd = {0};
+	MotorCommand_t incomingCmd = {0};
+
 	char ack[50] = {0};
+
 	setServoAngle(SERVO_CENTER);
 	osDelay(500);
 
-    // enum {FWD,REV,STOP,TURNL,TURNR, TURN90L, TURN90R, TASK2} currentState = STOP;
 	enum cmdList currentState = STOP;
-    uint8_t isStateChanged = 0;
+	uint8_t isStateChanged = 0;
     while (isContinue)
     {
-        if (xQueueReceive(motorCommandQueue, &cmd, 0) == pdPASS)
-        {
-            currentState = cmd.command;
-            isStateChanged = 1;
-            osDelay(200); // delay for time to put on floor
-        }
-        else
-        {
-            isStateChanged = 0;
-        }
+    	if (xQueueReceive(
+    	        motorCommandQueue,
+    	        &incomingCmd,
+    	        0
+    	    ) == pdPASS)
+    	{
+    	    /*
+    	     * If another movement is currently running,
+    	     * the new command preempts it.
+    	     */
+    	    if (currentState != STOP)
+    	    {
+    	        uint32_t abortedCmdId = cmd.cmdId;
+
+    	        /*
+    	         * Stop motor power immediately.
+    	         */
+    	        motorStop();
+
+    	        /*
+    	         * FWD and TURNL/TURNR use isTurning to tell
+    	         * readIMU() to keep integrating heading.
+    	         *
+    	         * Keep it active briefly after motorStop()
+    	         * so the gyro captures the robot's final coast.
+    	         */
+    	        if (isTurning)
+    	        {
+    	            if (currentState == TURNL ||
+    	                currentState == TURNR)
+    	            {
+    	                /*
+    	                 * Normal turn completion already uses
+    	                 * 150 ms settling time.
+    	                 */
+    	                osDelay(150);
+    	            }
+    	            else
+    	            {
+    	                /*
+    	                 * Normal FWD completion uses
+    	                 * 100 ms settling time.
+    	                 */
+    	                osDelay(100);
+    	            }
+
+    	            /*
+    	             * Preserve the ACTUAL heading reached before
+    	             * the command was interrupted.
+    	             */
+    	            globalHeading += currentAngle;
+
+    	            /*
+    	             * The high-level RPi has made a new decision,
+    	             * so the robot's actual current heading becomes
+    	             * the new heading baseline.
+    	             */
+    	            desiredHeading = globalHeading;
+
+    	            currentAngle = 0.0f;
+    	            isTurning = 0;
+    	        }
+
+    	        isFrontCalib = 0;
+
+    	        /*
+    	         * Tell the RPi that the previous command did not
+    	         * complete normally.
+    	         */
+    	        snprintf(
+    	            ack,
+    	            sizeof(ack),
+    	            "!%lu/ABORTED;",
+    	            (unsigned long)abortedCmdId
+    	        );
+
+    	        uartSend(ack);
+    	    }
+
+    	    /*
+    	     * Only NOW replace the active command.
+    	     */
+    	    cmd = incomingCmd;
+
+    	    currentState = cmd.command;
+    	    isStateChanged = 1;
+    	}
+    	else
+    	{
+    	    isStateChanged = 0;
+    	}
         if (currentState != STOP && music == MUTE && isContinue)
             music = BGM;
         switch (currentState)
@@ -8935,41 +9117,19 @@ void motor(void *argument)
 //            }
 //            break;
         case TURNL:
-            if (motorTurn(cmd, isStateChanged))
+        {
+            uint8_t turnResult =
+                motorTurn(cmd, isStateChanged);
+
+            if (turnResult == 1)
             {
+                /*
+                 * Normal completion.
+                 */
                 currentState = STOP;
                 motorStop();
+
                 completedCmdId = cmd.cmdId;
-
-
-
-                snprintf(
-                    ack,
-                    sizeof(ack),
-                    "!%lu/DONE;",
-                    (unsigned long)cmd.cmdId
-                );
-
-                uartSend(ack);           }
-            break;
-//        case TURNR:
-//            if (motorTurn(cmd, isStateChanged))
-//            {
-//                currentState = STOP;
-//                motorStop();
-//
-//                sprintf(ack, "!%d/DONE;", cmd.cmdId);
-//                HAL_UART_Transmit(&huart3, ack, strlen(ack), 0xFFFF);
-//            }
-//            break;
-        case TURNR:
-            if (motorTurn(cmd, isStateChanged))
-            {
-                currentState = STOP;
-                motorStop();
-                completedCmdId = cmd.cmdId;
-
-
 
                 snprintf(
                     ack,
@@ -8980,26 +9140,99 @@ void motor(void *argument)
 
                 uartSend(ack);
             }
+            else if (turnResult == 2)
+            {
+                /*
+                 * Turn failed because of timeout.
+                 */
+                currentState = STOP;
+                motorStop();
+
+                snprintf(
+                    ack,
+                    sizeof(ack),
+                    "!%lu/ERROR/TURN_TIMEOUT;",
+                    (unsigned long)cmd.cmdId
+                );
+
+                uartSend(ack);
+            }
+
             break;
+        }
+        case TURNR:
+        {
+            uint8_t turnResult =
+                motorTurn(cmd, isStateChanged);
+
+            if (turnResult == 1)
+            {
+                /*
+                 * Normal completion.
+                 */
+                currentState = STOP;
+                motorStop();
+
+                completedCmdId = cmd.cmdId;
+
+                snprintf(
+                    ack,
+                    sizeof(ack),
+                    "!%lu/DONE;",
+                    (unsigned long)cmd.cmdId
+                );
+
+                uartSend(ack);
+            }
+            else if (turnResult == 2)
+            {
+                /*
+                 * Turn failed because of timeout.
+                 */
+                currentState = STOP;
+                motorStop();
+
+                snprintf(
+                    ack,
+                    sizeof(ack),
+                    "!%lu/ERROR/TURN_TIMEOUT;",
+                    (unsigned long)cmd.cmdId
+                );
+
+                uartSend(ack);
+            }
+
+            break;
+        }
         case STOP:
             if (isStateChanged)
             {
                 isFrontCalib = 0;
                 isTurning = 0;
+
+                /*
+                 * Motor power stops immediately.
+                 */
                 motorStop();
+
+                /*
+                 * Leave the robot with its wheels centred.
+                 */
+                setServoAngle(SERVO_CENTER);
 
                 if (cmd.command == STOP)
                 {
-                	snprintf(
-                	    ack,
-                	    sizeof(ack),
-                	    "!%lu/DONE;",
-                	    (unsigned long)cmd.cmdId
-                	);
+                    snprintf(
+                        ack,
+                        sizeof(ack),
+                        "!%lu/DONE;",
+                        (unsigned long)cmd.cmdId
+                    );
 
-                	uartSend(ack);
+                    uartSend(ack);
                 }
             }
+            break;
         }
         osDelay(1);
     }
