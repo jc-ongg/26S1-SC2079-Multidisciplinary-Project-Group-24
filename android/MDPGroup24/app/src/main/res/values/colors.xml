@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Core Odyssey palette -->
+    <color name="odyssey_navy">#203A52</color>
+
+    <color name="odyssey_parchment">#F3E7D3</color>
+    <color name="odyssey_cream">#FBF8F1</color>
+
+    <color name="odyssey_bronze_light">#D2AD72</color>
+
+    <color name="odyssey_sea">#66879A</color>
+
+    <color name="odyssey_text">#293238</color>
+    <color name="odyssey_text_muted">#66747C</color>
+
+    <color name="screen_background">#FFFFFF</color>
+    <color name="card_background">#FFFCF6</color>
+
+    <color name="unselected">#E6E6E6</color>
+    <color name="control_inactive">#D7DDE0</color>
+    <color name="control_active">#5F8F68</color>ok what ever
+
+
+    <!-- Status colors -->
+    <color name="status_green">#2E7D32</color>
+    <color name="status_red">#C62828</color>
+    <color name="status_orange">#D98324</color>
+
+    <!-- Surfaces -->
+    <color name="panel_background">#F2E8D8</color>
+    <color name="tab_unselected">#EADFCF</color>
+    <color name="tab_selected">#D8C2A3</color>
+
+    <!-- Grid -->
+    <color name="grid_background">#E5EFF2</color>
+    <color name="grid_line">#5F6770</color>
+    <color name="grid_border">#2A2A2A</color>
+
+    <!-- Default -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="grey">#808080</color>
+
+</resources>

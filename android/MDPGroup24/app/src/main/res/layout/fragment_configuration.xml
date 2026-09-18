@@ -1,0 +1,726 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="8dp">
+
+
+    <!-- =====================================================
+         LEFT WORKSPACE
+         ===================================================== -->
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="7"
+        android:orientation="vertical"
+        android:paddingEnd="12dp">
+
+
+        <!-- =================================================
+             TASK TABS
+             ================================================= -->
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
+            android:orientation="horizontal">
+
+
+            <Button
+                android:id="@+id/btnTabPlaceRobot"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="2"
+                android:layout_marginEnd="3dp"
+                android:minHeight="0dp"
+                android:padding="0dp"
+                android:text="Place Robot"
+                android:textSize="14sp"
+                android:textColor="@color/odyssey_cream"
+                android:background="@drawable/config_toggle_button"
+                android:backgroundTint="@color/white" />
+
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center_vertical"
+                android:background="@color/odyssey_bronze_light" />
+
+
+            <Button
+                android:id="@+id/btnTabPlaceObstacle"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="3dp"
+                android:layout_marginEnd="2dp"
+                android:minHeight="0dp"
+                android:padding="0dp"
+                android:text="Place Obstacle"
+                android:textSize="10sp"
+                android:textColor="@color/odyssey_text"
+                android:background="@drawable/config_toggle_button"
+                android:backgroundTint="@color/odyssey_cream" />
+
+
+            <Button
+                android:id="@+id/btnTabInputObstacle"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:minHeight="0dp"
+                android:padding="0dp"
+                android:text="Enter Obstacle"
+                android:textSize="10sp"
+                android:textColor="@color/odyssey_text"
+                android:background="@drawable/config_toggle_button"
+                android:backgroundTint="@color/odyssey_cream" />
+
+        </LinearLayout>
+
+
+        <!-- =================================================
+             PLACE ROBOT
+             ================================================= -->
+
+        <LinearLayout
+            android:id="@+id/robotPanel"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="7dp"
+            android:orientation="vertical"
+            android:background="@drawable/bg_config_panel"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp">
+
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Select its centre cell on the arena and then pick an orientation."
+                android:textSize="11sp"
+                android:textColor="@color/odyssey_text_muted" />
+
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/btnSetRobot"
+                android:layout_width="190dp"
+                android:layout_height="40dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="9dp"
+                android:checked="false"
+                android:gravity="center_vertical"
+                android:text="Off"
+                android:textColor="@color/odyssey_text_muted"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/robotOrientationPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="9dp"
+                    android:layout_marginBottom="7dp"
+                    android:background="@color/grey" />
+
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+
+                    <!-- SELECT CENTRE -->
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+
+
+                        <TextView
+                            android:id="@+id/robotCentreLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Select Centre"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_navy" />
+
+
+                        <TextView
+                            android:id="@+id/robotSelectedCellText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:text="X: --   Y: --"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_navy" />
+
+                    </LinearLayout>
+
+
+                    <!-- SELECT ORIENTATION -->
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="2"
+                        android:orientation="vertical"
+                        android:gravity="center">
+
+
+                        <TextView
+                            android:id="@+id/robotOrientationLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="3dp"
+                            android:text="Select Orientation"
+                            android:textSize="13sp"
+                            android:textColor="@color/odyssey_text_muted" />
+
+
+                        <Button
+                            android:id="@+id/btnRobotNorth"
+                            android:layout_width="92dp"
+                            android:layout_height="34dp"
+                            android:minHeight="0dp"
+                            android:text="North"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_text_muted"
+                            android:backgroundTint="@color/control_inactive" />
+
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="34dp"
+                            android:orientation="horizontal">
+
+
+                            <Button
+                                android:id="@+id/btnRobotWest"
+                                android:layout_width="92dp"
+                                android:layout_height="34dp"
+                                android:minHeight="0dp"
+                                android:text="West"
+                                android:textSize="10sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/odyssey_text_muted"
+                                android:backgroundTint="@color/control_inactive" />
+
+
+                            <Space
+                                android:layout_width="18dp"
+                                android:layout_height="1dp" />
+
+
+                            <Button
+                                android:id="@+id/btnRobotEast"
+                                android:layout_width="92dp"
+                                android:layout_height="34dp"
+                                android:minHeight="0dp"
+                                android:text="East"
+                                android:textSize="10sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/odyssey_text_muted"
+                                android:backgroundTint="@color/control_inactive" />
+
+                        </LinearLayout>
+
+
+                        <Button
+                            android:id="@+id/btnRobotSouth"
+                            android:layout_width="92dp"
+                            android:layout_height="34dp"
+                            android:minHeight="0dp"
+                            android:text="South"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_text_muted"
+                            android:backgroundTint="@color/control_inactive" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+
+        <!-- =================================================
+             PLACE OBSTACLE
+             ================================================= -->
+
+        <LinearLayout
+            android:id="@+id/obstacleManualPanel"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="7dp"
+            android:orientation="vertical"
+            android:background="@drawable/bg_config_panel"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:visibility="gone">
+
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Select a cell on the arena and then select the orientation."
+                android:textSize="11sp"
+                android:textColor="@color/odyssey_text_muted" />
+
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/btnActivateObstaclePlacement"
+                android:layout_width="190dp"
+                android:layout_height="40dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="9dp"
+                android:checked="false"
+                android:gravity="center_vertical"
+                android:text="Off"
+                android:textColor="@color/odyssey_text_muted"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/manualOrientationPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="9dp"
+                    android:layout_marginBottom="7dp"
+                    android:background="@color/grey" />
+
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+
+                    <!-- SELECT CELL -->
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center">
+
+
+                        <TextView
+                            android:id="@+id/manualCellLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Select Cell"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_navy" />
+
+
+                        <TextView
+                            android:id="@+id/manualSelectedCellText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:text="X: --   Y: --"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_navy" />
+
+                    </LinearLayout>
+
+
+                    <!-- SELECT ORIENTATION -->
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="2"
+                        android:orientation="vertical"
+                        android:gravity="center">
+
+
+                        <TextView
+                            android:id="@+id/manualOrientationLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="3dp"
+                            android:text="Select Orientation"
+                            android:textSize="13sp"
+                            android:textColor="@color/odyssey_text_muted" />
+
+
+                        <Button
+                            android:id="@+id/btnManualNorth"
+                            android:layout_width="92dp"
+                            android:layout_height="34dp"
+                            android:minHeight="0dp"
+                            android:text="North"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_text_muted"
+                            android:backgroundTint="@color/control_inactive" />
+
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="34dp"
+                            android:orientation="horizontal">
+
+
+                            <Button
+                                android:id="@+id/btnManualWest"
+                                android:layout_width="92dp"
+                                android:layout_height="34dp"
+                                android:minHeight="0dp"
+                                android:text="West"
+                                android:textSize="10sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/odyssey_text_muted"
+                                android:backgroundTint="@color/control_inactive" />
+
+
+                            <Space
+                                android:layout_width="18dp"
+                                android:layout_height="1dp" />
+
+
+                            <Button
+                                android:id="@+id/btnManualEast"
+                                android:layout_width="92dp"
+                                android:layout_height="34dp"
+                                android:minHeight="0dp"
+                                android:text="East"
+                                android:textSize="10sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/odyssey_text_muted"
+                                android:backgroundTint="@color/control_inactive" />
+
+                        </LinearLayout>
+
+
+                        <Button
+                            android:id="@+id/btnManualSouth"
+                            android:layout_width="92dp"
+                            android:layout_height="34dp"
+                            android:minHeight="0dp"
+                            android:text="South"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_text_muted"
+                            android:backgroundTint="@color/control_inactive" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+
+        <!-- =================================================
+             ENTER OBSTACLE
+             ================================================= -->
+
+        <LinearLayout
+            android:id="@+id/obstacleInputPanel"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="7dp"
+            android:orientation="vertical"
+            android:background="@drawable/bg_config_panel"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:visibility="gone">
+
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Enter the obstacle coordinates and then select the orientation."
+                android:textSize="11sp"
+                android:textColor="@color/odyssey_text_muted" />
+
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal"
+                android:gravity="center">
+
+
+                <!-- COORDINATES -->
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="2"
+                    android:orientation="horizontal"
+                    android:gravity="center">
+
+
+                    <LinearLayout
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center">
+
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="X"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_navy" />
+
+
+                        <NumberPicker
+                            android:id="@+id/obstacleXPicker"
+                            android:layout_width="50dp"
+                            android:layout_height="96dp" />
+
+                    </LinearLayout>
+
+
+                    <LinearLayout
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center">
+
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Y"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_navy" />
+
+
+                        <NumberPicker
+                            android:id="@+id/obstacleYPicker"
+                            android:layout_width="50dp"
+                            android:layout_height="96dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+
+                <!-- ORIENTATION -->
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="3"
+                    android:orientation="vertical"
+                    android:gravity="center">
+
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="3dp"
+                        android:text="Select Orientation"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/odyssey_navy" />
+
+
+                    <Button
+                        android:id="@+id/btnObstacleNorth"
+                        android:layout_width="92dp"
+                        android:layout_height="34dp"
+                        android:minHeight="0dp"
+                        android:text="North"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/odyssey_text_muted"
+                        android:backgroundTint="@color/control_inactive" />
+
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:orientation="horizontal">
+
+
+                        <Button
+                            android:id="@+id/btnObstacleWest"
+                            android:layout_width="92dp"
+                            android:layout_height="34dp"
+                            android:minHeight="0dp"
+                            android:text="West"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_text_muted"
+                            android:backgroundTint="@color/control_inactive" />
+
+
+                        <Space
+                            android:layout_width="18dp"
+                            android:layout_height="1dp" />
+
+
+                        <Button
+                            android:id="@+id/btnObstacleEast"
+                            android:layout_width="92dp"
+                            android:layout_height="34dp"
+                            android:minHeight="0dp"
+                            android:text="East"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/odyssey_text_muted"
+                            android:backgroundTint="@color/control_inactive" />
+
+                    </LinearLayout>
+
+
+                    <Button
+                        android:id="@+id/btnObstacleSouth"
+                        android:layout_width="92dp"
+                        android:layout_height="34dp"
+                        android:minHeight="0dp"
+                        android:text="South"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/odyssey_text_muted"
+                        android:backgroundTint="@color/control_inactive" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+
+            <Button
+                android:id="@+id/btnPlaceObstacle"
+                android:layout_width="170dp"
+                android:layout_height="38dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="3dp"
+                android:minHeight="0dp"
+                android:text="Plant"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="@color/white"
+                android:backgroundTint="@color/control_active" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+
+    <!-- =====================================================
+         MAIN DIVIDER
+         ===================================================== -->
+
+    <View
+        android:layout_width="1dp"
+        android:layout_height="match_parent"
+        android:background="@color/odyssey_bronze_light" />
+
+
+    <!-- =====================================================
+         MAP ACTIONS
+         ===================================================== -->
+
+    <LinearLayout
+        android:id="@+id/configurationActionArea"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="3"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="12dp">
+
+
+        <Button
+            android:id="@+id/btnUndoMap"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:minHeight="0dp"
+            android:text="UNDO"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@color/white"
+            android:backgroundTint="@color/grey" />
+
+
+        <Button
+            android:id="@+id/btnResetMap"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="10dp"
+            android:minHeight="0dp"
+            android:text="RESET MAP"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@color/white"
+            android:backgroundTint="@color/status_red" />
+
+
+        <Button
+            android:id="@+id/btnSendMap"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="10dp"
+            android:minHeight="0dp"
+            android:text="SEND MAP"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@color/white"
+            android:backgroundTint="@color/odyssey_navy" />
+
+    </LinearLayout>
+
+
+</LinearLayout>

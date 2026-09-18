@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:id="@+id/main"
+    android:orientation="vertical"
+    android:background="@color/screen_background">
+
+    <!-- HEADER -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="10"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
+        android:background="@drawable/bg_header">
+
+        <ImageView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:src="@drawable/mdp_transparent_logo"
+            android:contentDescription="The Odyssey logo"
+            android:scaleType="fitCenter" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:id="@+id/appHeader"
+            android:layout_marginLeft="10dp"
+            android:text="The Odyssey"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:textColor="@color/odyssey_bronze_light" />
+
+
+        <ImageView
+            android:layout_width="252dp"
+            android:layout_height="72dp"
+            android:src="@drawable/cyclops"
+            android:contentDescription="Cyclops"
+            android:layout_marginLeft="40dp"
+            android:scaleType="fitCenter" />
+
+    </LinearLayout>
+
+
+    <!-- MAIN TABS -->
+    <LinearLayout
+        android:id="@+id/mainTabBar"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="5"
+        android:orientation="horizontal"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:padding="3dp"
+        android:background="@drawable/bg_tab_container"
+        android:clipToOutline="true">
+
+        <TextView
+            android:id="@+id/tabHome"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/bg_main_tab_selected"
+            android:gravity="center"
+            android:text="Home"
+            android:textColor="#222222"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tabBluetooth"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@drawable/bg_main_tab_selected"
+            android:gravity="center"
+            android:text="Bluetooth"
+            android:textColor="@color/black"
+            android:textSize="16sp" />
+
+    </LinearLayout>
+
+
+    <!-- MAP / SETTINGS CONTENT -->
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/mainViewPager"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="85" />
+
+</LinearLayout>

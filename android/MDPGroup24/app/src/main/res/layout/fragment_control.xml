@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+
+    <!-- ================================================= -->
+    <!-- CONTROL AREA -->
+    <!-- ================================================= -->
+
+    <FrameLayout
+        android:id="@+id/controlWheelArea"
+        android:layout_width="280dp"
+        android:layout_height="280dp"
+        android:layout_gravity="center">
+
+
+        <!-- ================================================= -->
+        <!-- SHIP WHEEL BACKGROUND -->
+        <!-- ================================================= -->
+
+        <ImageView
+            android:layout_width="250dp"
+            android:layout_height="250dp"
+            android:layout_gravity="center"
+            android:contentDescription="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ship_wheel" />
+
+
+        <!-- ================================================= -->
+        <!-- FORWARD -->
+        <!-- ================================================= -->
+
+        <Button
+            android:id="@+id/btnForward"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="4dp"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:alpha="0.60"
+            android:backgroundTint="@color/control_inactive"
+            android:text="→"
+            android:textColor="@color/odyssey_text_muted"
+            android:textSize="30sp"
+            android:textStyle="bold"
+            android:rotation="-90"
+            android:contentDescription="Forward" />
+
+
+        <!-- ================================================= -->
+        <!-- LEFT -->
+        <!-- ================================================= -->
+
+        <Button
+            android:id="@+id/btnLeft"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_gravity="start|center_vertical"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:alpha="0.60"
+
+            android:backgroundTint="@color/control_inactive"
+            android:text="→"
+            android:textColor="@color/odyssey_text_muted"
+            android:textSize="30sp"
+            android:textStyle="bold"
+            android:rotation="180"
+            android:contentDescription="Turn Left" />
+
+
+        <!-- ================================================= -->
+        <!-- RIGHT -->
+        <!-- ================================================= -->
+
+        <Button
+            android:id="@+id/btnRight"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_gravity="end|center_vertical"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:alpha="0.60"
+
+            android:backgroundTint="@color/control_inactive"
+            android:text="→"
+            android:textColor="@color/odyssey_text_muted"
+            android:textSize="30sp"
+            android:textStyle="bold"
+            android:contentDescription="Turn Right" />
+
+
+        <!-- ================================================= -->
+        <!-- BACKWARD -->
+        <!-- ================================================= -->
+
+        <Button
+            android:id="@+id/btnBackward"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="4dp"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:alpha="0.60"
+
+            android:backgroundTint="@color/control_inactive"
+            android:text="→"
+            android:textColor="@color/odyssey_text_muted"
+            android:textSize="30sp"
+            android:textStyle="bold"
+            android:rotation="90"
+            android:contentDescription="Backward" />
+
+    </FrameLayout>
+
+</FrameLayout>
