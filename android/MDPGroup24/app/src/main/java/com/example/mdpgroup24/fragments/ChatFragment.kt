@@ -79,6 +79,23 @@ class ChatFragment :
         messagesContainer.removeAllViews()
 
 
+        parentFragmentManager
+            .setFragmentResultListener(
+                RESULT_EXTERNAL_SENT_MESSAGE,
+                viewLifecycleOwner
+            ) { _, bundle ->
+
+                bundle
+                    .getString(KEY_MESSAGE)
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?.let {
+                        addSentMessage(it)
+                    }
+            }
+
+
         // Normal send button
         sendButton.setOnClickListener {
             sendCurrentMessage()
@@ -463,5 +480,15 @@ class ChatFragment :
         )
 
         super.onDestroyView()
+    }
+
+
+    companion object {
+
+        const val RESULT_EXTERNAL_SENT_MESSAGE =
+            "chat_external_sent_message"
+
+        const val KEY_MESSAGE =
+            "message"
     }
 }

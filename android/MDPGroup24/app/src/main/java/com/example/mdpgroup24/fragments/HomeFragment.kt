@@ -1827,8 +1827,31 @@ class HomeFragment :
             }
 
 
-        return sendProtocolMessage(
+        val payload =
             message.toString()
-        )
+
+
+        val sent =
+            sendProtocolMessage(
+                payload
+            )
+
+
+        if (sent) {
+
+            childFragmentManager
+                .setFragmentResult(
+                    ChatFragment.RESULT_EXTERNAL_SENT_MESSAGE,
+                    Bundle().apply {
+                        putString(
+                            ChatFragment.KEY_MESSAGE,
+                            "//$payload//"
+                        )
+                    }
+                )
+        }
+
+
+        return sent
     }
 }
