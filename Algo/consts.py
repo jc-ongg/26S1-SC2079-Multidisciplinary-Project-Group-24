@@ -1,8 +1,11 @@
 from enum import Enum
 
 # =========== ADJUST ACCORDINGLY TO ROBOT'S MOVEMENT CHARACTERISTICS ===========
-UNIT_TO_CM_MULTIPLIER = 20
-UNIT_TO_CM_MULTIPLIER_REVERSE = 20
+# Arena cells are 10cm (2m / 20 cells) and the STM's FWD unit is ~1cm
+# (measured: ultrasonic fell ~21cm over two forward-10 commands). 20 here
+# doubled every distance and drove the robot straight through obstacles.
+UNIT_TO_CM_MULTIPLIER = 10
+UNIT_TO_CM_MULTIPLIER_REVERSE = 10
 
 FORWARD_LEFT_LONGITUDINAL_OFFSET = 2
 FORWARD_LEFT_LATERAL_OFFSET = 4

@@ -1,0 +1,6 @@
+venv
+
+# ONNX model files
+*.onnx
+
+own_results
