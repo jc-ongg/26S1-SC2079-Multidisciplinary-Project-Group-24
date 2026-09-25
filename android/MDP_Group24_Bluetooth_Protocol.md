@@ -39,8 +39,19 @@ All machine messages use:
 | Robot removal | `//ROBOT,3,3,-1//` | Remove the robot at `(3,3)`. |
 | Obstacle placement/update | `//OBSTACLE,1,5,7,E//` | Obstacle `1` is at `(5,7)`, facing East. Also used after moving or changing orientation. |
 | Obstacle removal | `//OBSTACLE,1,5,7,-1//` | Remove obstacle `1`. Used for delete, drag-outside, or Undo. |
-| Start challenge | `//BEGIN//` | Start the challenge timer/task. |
-| Challenge result | `//RESULT,01:23.45//` | Stop the challenge and send elapsed time in `mm:ss.cc` format. |
+| Start challenge | `//BEGIN,1//` | Start the selected challenge task. The task number is `1` or `2`. |
+| Challenge result | `//RESULT,1,01:23.45//` | Stop the selected challenge task and send its elapsed time in `mm:ss.cc` format. |
+
+### Challenge message fields
+
+```text
+//BEGIN,<task>//
+//RESULT,<task>,<elapsed-time>//
+```
+
+- `<task>` is `1` or `2`, matching the task selected in the Android app.
+- `<elapsed-time>` uses `mm:ss.cc`, where `cc` is centiseconds.
+- The task number in `RESULT` identifies the same task that was started by `BEGIN`.
 
 ---
 
