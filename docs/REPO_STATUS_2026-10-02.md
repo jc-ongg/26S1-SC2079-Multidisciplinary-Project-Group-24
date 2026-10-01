@@ -2,6 +2,13 @@
 
 ## Working branch and recovery
 
+Later stash audit: [STASH_AUDIT_2026-10-02.md](STASH_AUDIT_2026-10-02.md) explains
+the 28k saved paths and records the recovered reference documents. Source work
+from both stashes was already integrated; old generated environments remain
+in named local archive tags, not in the active project or GitHub uploads.
+The stash entries themselves are retained pending the user's explicit approval
+to clear the old list after archiving.
+
 Use `main` for the integrated Android, Algo, laptop CV, RPi snapshot and STM32
 sources. Existing component branches are compatibility/recovery names pointing
 at the same integrated version, not different deployable projects. Future work
