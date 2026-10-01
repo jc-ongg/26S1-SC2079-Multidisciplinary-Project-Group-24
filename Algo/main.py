@@ -17,9 +17,24 @@ from threading import Lock
 import ast
 import consts
 
-# Load YOLO model once when server starts
+# Image recognition is NOT done here -- it runs on image-api (:8001) with
+# best_v11i_m.onnx, which reads the arrows and digits more reliably. This server
+# is for path planning only.
+#
+# The weights are therefore optional: if best.pt is absent the server still
+# starts and /path works normally, and /infer answers with a clear pointer
+# instead of a stack trace. Loading is lazy so a missing file costs nothing.
 MODEL_PATH = "./best.pt"
-yolo_model = YOLO(MODEL_PATH)
+IMAGE_API_HINT = "image recognition is served by image-api on :8001 (/predict)"
+yolo_model = None
+
+
+def get_yolo_model():
+    """Load best.pt on first use, or return None if it is not present."""
+    global yolo_model
+    if yolo_model is None and os.path.exists(MODEL_PATH):
+        yolo_model = YOLO(MODEL_PATH)
+    return yolo_model
 
 # Create upload directory if not exists
 UPLOAD_FOLDER = "uploads"
@@ -254,7 +269,14 @@ def image_predict():
     # =========================
     # YOLO INFERENCE
     # =========================
-    result = yolo_model.predict(img, imgsz=640, conf=0.30, verbose=False)[0]
+    model = get_yolo_model()
+    if model is None:
+        return jsonify({
+            "ok": False,
+            "error": f"/infer is disabled on this server -- {IMAGE_API_HINT}",
+        }), 503
+
+    result = model.predict(img, imgsz=640, conf=0.30, verbose=False)[0]
 
     # Save annotated image (with bounding boxes)
     annotated_array = result.plot()  # numpy array (BGR)
@@ -277,6 +299,10 @@ def image_predict():
             # Map to CLS_MAP
             mapped_id, label = CLS_MAP[cls_id]
 
+            # Checklist A.2 wants a bounding rectangle drawn around the detected
+            # image on the PC, so the box coordinates have to leave the server.
+            xyxy = [round(float(v), 1) for v in box.xyxy[0].tolist()]
+
             detections.append({
                 #"cls_id": cls_id,
                 "cls_id": mapped_id,
@@ -288,7 +314,8 @@ def image_predict():
                 "cls_name": label,
                 #"mapped_id": mapped_id,
                 #"label": label,
-                "conf": round(conf, 4)
+                "conf": round(conf, 4),
+                "xyxy": xyxy
             })
 
 
@@ -336,7 +363,9 @@ def check_queue():
 
 def run_flask():
     # Run Flask in a background thread
-    app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=False)
+    # ALGO_PORT lets a second copy run alongside (e.g. for laptop_verify.py).
+    app.run(host='0.0.0.0', port=int(os.environ.get("ALGO_PORT", 8000)),
+            debug=True, use_reloader=False)
 
 if __name__ == '__main__':
     run_turtle = False

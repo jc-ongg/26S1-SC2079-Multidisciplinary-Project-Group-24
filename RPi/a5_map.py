@@ -224,15 +224,28 @@ class Robot:
         return ok
 
     def turn(self, deg, right, why=""):
+        """Gyro-verified turn.
+
+        The firmware abandons turns it cannot finish (!ERROR/TURN_TIMEOUT;)
+        having already rotated part way, so a fire-and-forget turn leaves the
+        pose estimate wrong by tens of degrees. turn_by() re-issues the
+        remainder until the gyro agrees, and returns what was actually
+        achieved -- which is what the map is updated with.
+        """
         deg = int(max(5, min(170, abs(deg))))
-        before = self.w.heading
-        ok = self._do(f"{'right' if right else 'left'},{deg},forward,0", why)
-        if ok:
+        if self.dry_run:
+            log(f"  WOULD turn {'right' if right else 'left'} {deg:<13} {why}")
             self.w.turned(deg, right)
-            # The gyro already corrected heading in _do; the arc above only
-            # supplies the translation.
-            if self.dry_run:
-                self.w.heading = norm(before + (-deg if right else deg))
+            self.w.heading = norm(self.w.heading + (-deg if right else deg))
+            return True
+        log(f"  turn {'right' if right else 'left'} {deg:<19} {why}")
+        achieved, ok = self.link.turn_by(deg, right, logger=lambda m: log(f"    {m}"))
+        # Integrate the arc for what actually happened, not what was asked.
+        if achieved is not None:
+            self.w.turned(abs(achieved), achieved < 0)
+        else:
+            self.w.turned(deg, right)
+        self.w.sync_heading(self.link.heading())
         return ok
 
     def observe(self):
@@ -311,7 +324,6 @@ def run(bot):
         bot.turn(ORBIT_STEP_DEG, True, "(swing around the cube)")
         bot.forward(20, "(travel round)")
         face_the_obstacle(bot)
-        orbit_done += ORBIT_STEP_DEG
 
     log("  ran out of actions")
     return None

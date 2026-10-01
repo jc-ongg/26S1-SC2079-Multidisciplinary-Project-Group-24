@@ -28,10 +28,11 @@ import time
 
 import requests
 
-from settings import API_IP, API_PORT
+from settings import API_IP, API_PORT, API_IP_IMAGE, API_PORT_IMAGE
 from communication.stm32 import STMLink
 
-BASE = f"http://{API_IP}:{API_PORT}"
+BASE = f"http://{API_IP}:{API_PORT}"                   # Algo: path planning
+IMAGE_BASE = f"http://{API_IP_IMAGE}:{API_PORT_IMAGE}"  # image-api: recognition
 SNAP_PATH = "/tmp/a5_snap.jpg"
 
 # Confidence floor for accepting a detection. The server already filters at
@@ -82,23 +83,30 @@ def capture(path=SNAP_PATH):
 def infer(path=SNAP_PATH):
     """POST the image and return the best detection, or None.
 
-    The field must be called "file"; "image" returns 400 "No file uploaded".
+    image-api wants the field called "image" and answers with a single best
+    guess: {image_id, conf, xyxy}. It uses {'image_id': 'NA'} for "nothing
+    recognised" and a bare HTTP 404 for "no objects detected" -- both mean the
+    same thing to us, so neither is treated as an error.
     """
     with open(path, "rb") as f:
-        r = requests.post(f"{BASE}/infer",
-                          files={"file": (os.path.basename(path), f, "image/jpeg")},
+        r = requests.post(IMAGE_BASE + "/predict",
+                          files={"image": (os.path.basename(path), f, "image/jpeg")},
                           timeout=90)
+    if r.status_code == 404:
+        log("  /predict -> no objects detected")
+        return None
     r.raise_for_status()
     body = r.json()
-    dets = body.get("detections", [])
-    log(f"  /infer -> n={body.get('n', 0)} in {body.get('latency_ms', '?')}ms")
-    if not dets:
+    image_id = body.get("image_id")
+    log(f"  /predict -> image_id={image_id} conf={body.get('conf')}")
+    if not image_id or image_id == "NA":
         return None
-    best = max(dets, key=lambda d: d.get("conf", 0))
-    if best.get("conf", 0) < MIN_CONF:
-        log(f"  best {best.get('cls_name')} conf={best.get('conf')} below {MIN_CONF}, ignoring")
+    if float(body.get("conf", 0)) < MIN_CONF:
+        log(f"  conf {body.get('conf')} below {MIN_CONF}, ignoring")
         return None
-    return best
+    # Normalise to the shape the rest of this script expects.
+    return {"cls_id": image_id, "cls_name": image_id,
+            "conf": body.get("conf"), "xyxy": body.get("xyxy")}
 
 
 def run_sequence(commands, link, dry_run=False):

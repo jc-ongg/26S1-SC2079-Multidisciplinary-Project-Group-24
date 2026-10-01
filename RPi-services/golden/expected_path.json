@@ -1,0 +1,27 @@
+[
+ {
+  "payload": "STATUS,OBSTACLE_LIST,false,10;1;NORTH,false,1;10;17;SOUTH | 2;2;11;EAST,true,true",
+  "stm_commands": [
+   "center,0,forward,120",
+   "SNAP1",
+   "center,0,reverse,37",
+   "left,90,forward,0",
+   "center,0,forward,5",
+   "SNAP2_C",
+   "FIN"
+  ]
+ },
+ {
+  "payload": "STATUS,OBSTACLE_LIST,false,9;1;NORTH,false,1;9;19;SOUTH | 2;18;10;WEST,true,true",
+  "stm_commands": [
+   "center,0,forward,140",
+   "SNAP1",
+   "center,0,reverse,70",
+   "right,90,forward,0",
+   "center,0,forward,4",
+   "center,0,forward,10",
+   "SNAP2",
+   "FIN"
+  ]
+ }
+]

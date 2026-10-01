@@ -101,8 +101,9 @@ class STMLink(Link):
     specific command should read ``last_done_id``.
     """
 
-    def __init__(self):
+    def __init__(self, log_telemetry: bool = True):
         super().__init__()
+        self.log_telemetry = log_telemetry
         self.serial_link = None
         self.speed = DEFAULT_SPEED
         self.last_done_id: Optional[int] = None
@@ -200,12 +201,13 @@ class STMLink(Link):
         distance = 255 if amount == "--" else int(amount)
         return f"{cmd_id}/MOTOR/{COMMAND_MAP[prefix]}/{self.speed}/{distance};"
 
-    def send(self, message: str) -> None:
+    def send(self, message: str) -> int:
         """Translate and write one command frame."""
         frame = self.translate(message)
         self.serial_link.write(frame.encode("utf-8"))
         self.serial_link.flush()
         self.logger.debug(f"Sent to STM32: {frame} (from {message!r})")
+        return int(frame.split("/", 1)[0])
 
     def recv(self) -> Optional[str]:
         """Block until a command completion arrives.
@@ -253,15 +255,18 @@ class STMLink(Link):
             # labelled by the firmware, so they are exposed as-is.
             if tag == "SENSOR":
                 self.last_sensor = parts[1:]
-                self.logger.debug(f"STM32 telemetry: {parts[1:]}")
+                if self.log_telemetry:
+                    self.logger.debug(f"STM32 telemetry: {parts[1:]}")
                 continue
 
             self.logger.debug(f"Received from STM32: {message}")
 
-            # !READY; -- boot banner, not a command completion
+            # !READY; -- boot banner, not a command completion. Skip it like
+            # telemetry: the caller is waiting for an ACK, and returning READY
+            # here makes the first command after a power-cycle appear to fail.
             if tag == "READY":
                 self.logger.info("STM32 reported READY (booted)")
-                return "READY"
+                continue
 
             if len(parts) >= 2 and parts[1].upper() == "DONE":
                 try:
@@ -320,6 +325,95 @@ class STMLink(Link):
         while d < -180:
             d += 360
         return d
+
+
+    def turn_by(self, degrees: float, right: bool, tolerance: float = 6.0,
+                attempts: int = 4, logger=None):
+        """Turn a real number of degrees, verified against the gyro.
+
+        A single turn command is not enough. The firmware gives up on a turn it
+        cannot finish and answers ``!<id>/ERROR/TURN_TIMEOUT;`` having already
+        rotated part of the way -- so a caller that only checks "did I get an
+        error" is left believing nothing happened, while a caller that ignores
+        the reply believes it turned the full amount. Neither is true, and that
+        is what made commanded 180s measure 110 degrees one run and 172 the
+        next.
+
+        So: measure the heading, turn, measure again, and re-issue whatever is
+        left until it is within tolerance or the attempts run out.
+
+        Returns (achieved_degrees, ok).
+        """
+        def say(m):
+            if logger:
+                logger(m)
+            else:
+                self.logger.debug(m)
+
+        start = self.heading()
+        if start is None:
+            # No telemetry: fall back to firing and hoping, but say so.
+            say("turn_by: no heading available, cannot verify")
+            self.send(f"{'right' if right else 'left'},{int(degrees)},forward,0")
+            return None, self.recv() is not None
+
+        want = -abs(degrees) if right else abs(degrees)
+        for attempt in range(1, attempts + 1):
+            now = self.heading()
+            done = self.heading_delta(start, now) if now is not None else 0.0
+            remaining = want - done
+            if abs(remaining) <= tolerance:
+                say(f"turn_by: {done:+.1f} of {want:+.1f} deg - good")
+                return done, True
+
+            step = int(round(min(170, max(5, abs(remaining)))))
+            self.send(f"{'right' if remaining < 0 else 'left'},{step},forward,0")
+            reply = self.recv()
+
+            after = self.heading()
+            achieved = self.heading_delta(start, after) if after is not None else done
+            if reply and "TURN_TIMEOUT" in reply:
+                say(f"turn_by: attempt {attempt} timed out after "
+                    f"{self.heading_delta(start, after):+.1f} deg, retrying the rest")
+            elif reply is None:
+                say(f"turn_by: attempt {attempt} got no reply")
+            else:
+                say(f"turn_by: attempt {attempt} -> {achieved:+.1f} of {want:+.1f} deg")
+
+        final = self.heading()
+        done = self.heading_delta(start, final) if final is not None else 0.0
+        ok = abs(want - done) <= tolerance * 2
+        say(f"turn_by: finished at {done:+.1f} of {want:+.1f} deg (ok={ok})")
+        return done, ok
+
+    def ultrasonic_cm(self):
+        """Forward ultrasonic range in cm, or None when the reading is invalid.
+
+        Field 4 of the telemetry is the firmware's own validity flag
+        (``usValid``). Ignoring it is why a reading of 82cm once sat next to a
+        camera measurement of 57cm -- the echo had not come back and the value
+        was meaningless.
+        """
+        s = self.read_sensors()
+        if not s or len(s) < 4:
+            return None
+        try:
+            if int(float(s[3])) != 1:
+                return None
+            v = float(s[2])
+        except ValueError:
+            return None
+        return v if 2.0 < v < 400.0 else None
+
+    def ir_cm(self):
+        """(left, right) IR readings. Named per the firmware's own sprintf."""
+        s = self.read_sensors()
+        if not s or len(s) < 2:
+            return (None, None)
+        try:
+            return (float(s[0]), float(s[1]))
+        except ValueError:
+            return (None, None)
 
     def sensors(self):
         """Most recent telemetry as a list of strings, or None.

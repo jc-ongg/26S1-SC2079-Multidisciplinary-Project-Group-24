@@ -21,7 +21,7 @@ LETTER_TO_DIR = {"N": 0, "E": 2, "S": 4, "W": 6}
 LETTER_TO_NAME = {"N": "NORTH", "E": "EAST", "S": "SOUTH", "W": "WEST"}
 
 # Android's manual-drive buttons -> legacy STM command strings.
-MANUAL_MOVES = {"F": "FW010", "B": "BW010", "L": "FL00", "R": "FR00"}
+MANUAL_MOVES = {"F": "FW010", "B": "BW010", "L": "FL090", "R": "FR090"}
 
 
 class FrameBuffer:
