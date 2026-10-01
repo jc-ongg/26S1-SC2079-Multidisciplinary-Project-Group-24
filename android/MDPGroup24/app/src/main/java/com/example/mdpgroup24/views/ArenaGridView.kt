@@ -702,6 +702,114 @@ class ArenaGridView @JvmOverloads constructor(
     }
 
 
+    fun replaceLayout(
+        savedRobot: Robot?,
+        savedObstacles: List<Obstacle>
+    ): Boolean {
+
+        if (
+            savedObstacles.any {
+                it.id < 1 ||
+                        !isInsideGrid(
+                            it.x,
+                            it.y
+                        )
+            }
+        ) {
+            return false
+        }
+
+
+        if (
+            savedObstacles
+                .map {
+                    it.id
+                }
+                .distinct()
+                .size != savedObstacles.size
+        ) {
+            return false
+        }
+
+
+        if (
+            savedObstacles
+                .map {
+                    it.x to it.y
+                }
+                .distinct()
+                .size != savedObstacles.size
+        ) {
+            return false
+        }
+
+
+        if (savedRobot != null) {
+
+            if (
+                savedRobot.x !in 1..18 ||
+                savedRobot.y !in 1..18
+            ) {
+                return false
+            }
+
+
+            if (
+                savedObstacles.any {
+                    it.x in
+                            (savedRobot.x - 1)..
+                            (savedRobot.x + 1) &&
+                            it.y in
+                            (savedRobot.y - 1)..
+                            (savedRobot.y + 1)
+                }
+            ) {
+                return false
+            }
+        }
+
+
+        obstacles.clear()
+
+        obstacles.addAll(
+            savedObstacles
+                .sortedBy {
+                    it.id
+                }
+        )
+
+
+        robot =
+            savedRobot
+
+
+        placementHistory.clear()
+
+        nextObstacleId =
+            (
+                    savedObstacles
+                        .maxOfOrNull {
+                            it.id
+                        }
+                        ?: 0
+                    ) + 1
+
+
+        selectedCell =
+            null
+
+        selectionMode =
+            SelectionMode.NONE
+
+
+        clearObstacleDragState()
+
+        invalidate()
+
+        return true
+    }
+
+
     fun updateRobotFromExternal(
         x: Int,
         y: Int,

@@ -21,6 +21,8 @@ import android.graphics.Color
 import androidx.appcompat.app.AlertDialog
 import android.content.res.ColorStateList
 import android.widget.Button
+import org.json.JSONArray
+import org.json.JSONObject
 
 class HomeFragment :
     Fragment(R.layout.fragment_home),
@@ -1261,6 +1263,188 @@ class HomeFragment :
     }
 
 
+    fun saveCurrentLayout(): Boolean {
+
+        val layout =
+            JSONObject()
+
+
+        val currentRobot =
+            arenaGridView.getRobot()
+
+
+        if (currentRobot == null) {
+
+            layout.put(
+                "robot",
+                JSONObject.NULL
+            )
+
+        } else {
+
+            layout.put(
+                "robot",
+                JSONObject().apply {
+                    put("x", currentRobot.x)
+                    put("y", currentRobot.y)
+                    put(
+                        "direction",
+                        currentRobot.direction.name
+                    )
+                }
+            )
+        }
+
+
+        val obstacles =
+            JSONArray()
+
+
+        arenaGridView
+            .getObstacles()
+            .sortedBy {
+                it.id
+            }
+            .forEach { obstacle ->
+
+                obstacles.put(
+                    JSONObject().apply {
+                        put("id", obstacle.id)
+                        put("x", obstacle.x)
+                        put("y", obstacle.y)
+                        put(
+                            "direction",
+                            obstacle.direction.name
+                        )
+                    }
+                )
+            }
+
+
+        layout.put(
+            "obstacles",
+            obstacles
+        )
+
+
+        requireContext()
+            .getSharedPreferences(
+                SAVED_LAYOUT_PREFERENCES,
+                android.content.Context.MODE_PRIVATE
+            )
+            .edit()
+            .putString(
+                SAVED_LAYOUT_KEY,
+                layout.toString()
+            )
+            .apply()
+
+
+        return true
+    }
+
+
+    fun useSavedLayout(): Boolean {
+
+        val savedLayout =
+            requireContext()
+                .getSharedPreferences(
+                    SAVED_LAYOUT_PREFERENCES,
+                    android.content.Context.MODE_PRIVATE
+                )
+                .getString(
+                    SAVED_LAYOUT_KEY,
+                    null
+                )
+                ?: return false
+
+
+        return try {
+
+            val layout =
+                JSONObject(savedLayout)
+
+
+            val robotJson =
+                layout.optJSONObject(
+                    "robot"
+                )
+
+
+            val savedRobot =
+                robotJson?.let {
+                    ArenaGridView.Robot(
+                        x = it.getInt("x"),
+                        y = it.getInt("y"),
+                        direction =
+                            ArenaGridView.Direction.valueOf(
+                                it.getString(
+                                    "direction"
+                                )
+                            )
+                    )
+                }
+
+
+            val obstacleJson =
+                layout.getJSONArray(
+                    "obstacles"
+                )
+
+
+            val savedObstacles =
+                buildList {
+
+                    for (
+                    index in
+                    0 until obstacleJson.length()
+                    ) {
+
+                        val obstacle =
+                            obstacleJson.getJSONObject(
+                                index
+                            )
+
+
+                        add(
+                            ArenaGridView.Obstacle(
+                                id = obstacle.getInt("id"),
+                                x = obstacle.getInt("x"),
+                                y = obstacle.getInt("y"),
+                                direction =
+                                    ArenaGridView.Direction.valueOf(
+                                        obstacle.getString(
+                                            "direction"
+                                        )
+                                    )
+                            )
+                        )
+                    }
+                }
+
+
+            val loaded =
+                arenaGridView.replaceLayout(
+                    savedRobot,
+                    savedObstacles
+                )
+
+
+            if (loaded) {
+                updateVesselInformation()
+            }
+
+
+            loaded
+
+        } catch (
+            _: Exception
+        ) {
+            false
+        }
+    }
+
+
     // =====================================================
     // GET CONFIGURATION FRAGMENT
     // =====================================================
@@ -1853,5 +2037,15 @@ class HomeFragment :
 
 
         return sent
+    }
+
+
+    companion object {
+
+        private const val SAVED_LAYOUT_PREFERENCES =
+            "saved_layout_preferences"
+
+        private const val SAVED_LAYOUT_KEY =
+            "saved_layout"
     }
 }

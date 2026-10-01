@@ -100,6 +100,12 @@ class ConfigurationFragment :
     private lateinit var undoMapButton:
             Button
 
+    private lateinit var saveMapButton:
+            Button
+
+    private lateinit var useMapButton:
+            Button
+
     private lateinit var resetMapButton:
             Button
 
@@ -448,6 +454,16 @@ class ConfigurationFragment :
         undoMapButton =
             view.findViewById(
                 R.id.btnUndoMap
+            )
+
+        saveMapButton =
+            view.findViewById(
+                R.id.btnSaveMap
+            )
+
+        useMapButton =
+            view.findViewById(
+                R.id.btnUseMap
             )
 
         resetMapButton =
@@ -1816,6 +1832,54 @@ class ConfigurationFragment :
             }
 
 
+        saveMapButton
+            .setOnClickListener {
+
+                deactivatePlacementModes()
+
+
+                val saved =
+                    (parentFragment as? HomeFragment)
+                        ?.saveCurrentLayout()
+                        ?: false
+
+
+                Toast.makeText(
+                    requireContext(),
+                    if (saved) {
+                        "Layout saved"
+                    } else {
+                        "Unable to save layout"
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+
+
+        useMapButton
+            .setOnClickListener {
+
+                deactivatePlacementModes()
+
+
+                val loaded =
+                    (parentFragment as? HomeFragment)
+                        ?.useSavedLayout()
+                        ?: false
+
+
+                Toast.makeText(
+                    requireContext(),
+                    if (loaded) {
+                        "Saved layout loaded"
+                    } else {
+                        "No saved layout found"
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+
+
         resetMapButton
             .setOnClickListener {
 
@@ -1869,6 +1933,19 @@ class ConfigurationFragment :
                     Toast.LENGTH_SHORT
                 ).show()
             }
+    }
+
+
+    private fun deactivatePlacementModes() {
+
+        if (robotPlacementActive) {
+            deactivateRobotPlacement()
+        }
+
+
+        if (obstaclePlacementActive) {
+            deactivateObstaclePlacement()
+        }
     }
 
 
