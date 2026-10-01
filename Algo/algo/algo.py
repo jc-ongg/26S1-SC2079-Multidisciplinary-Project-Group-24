@@ -408,5 +408,3 @@ class PathFinder:
         turned = d != newD
 
         return moved_backward and turned
-            
-    
