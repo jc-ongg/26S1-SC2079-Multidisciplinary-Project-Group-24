@@ -1,0 +1,26 @@
+{
+ "right_arrow_38.jpg": {
+  "image_id": "RIGHT",
+  "obstacle_id": "38",
+  "conf": 0.931,
+  "bullseye": false
+ },
+ "letter_S_28.jpg": {
+  "image_id": "S",
+  "obstacle_id": "28",
+  "conf": 0.945,
+  "bullseye": false
+ },
+ "number_2_12.jpg": {
+  "image_id": "2",
+  "obstacle_id": "12",
+  "conf": 0.911,
+  "bullseye": false
+ },
+ "bullseye.jpg": {
+  "image_id": "NA",
+  "obstacle_id": null,
+  "conf": null,
+  "bullseye": true
+ }
+}

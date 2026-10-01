@@ -21,16 +21,19 @@ Not included because they were never changed and already live on the Pi:
 
 ## Run
 
-On the laptop: Algo server on `:8000`, image-api on `:8001`
-(see `RPi-services/README.md`). Laptop on the Pi's hotspot at `192.168.50.147`.
+On a laptop: `python RPi-services/laptop_start.py` (set it up once with
+`laptop_setup.py`; see `RPi-services/README.md`). It prints its own IP. The
+laptop must be on the Pi's hotspot.
 
 ```bash
-scp -r rpi-task1/* nat@192.168.50.5:~/SC2079-MDP/rpi/
-ssh -t nat@192.168.50.5 'cd ~/SC2079-MDP/rpi && ./run_week8.sh'
+scp -r RPi/* nat@192.168.50.5:~/SC2079-MDP/rpi/
+ssh -t nat@192.168.50.5 'cd ~/SC2079-MDP/rpi && LAPTOP_IP=<laptop ip> ./run_week8.sh'
 ```
 
+`LAPTOP_IP` defaults to `192.168.50.147`, the laptop used on 2026-09-25.
+
 Tablet: connect, place robot + obstacles, press Start on the Challenge screen.
-After the run, open `http://192.168.50.147:8001/stitch` for the tiled RAW display.
+After the run, open `http://<laptop ip>:8001/stitch` for the tiled RAW display.
 
 Offline tests (no Pi needed): `python3 tests/test_offline.py`
 

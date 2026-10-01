@@ -363,7 +363,9 @@ def check_queue():
 
 def run_flask():
     # Run Flask in a background thread
-    app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=False)
+    # ALGO_PORT lets a second copy run alongside (e.g. for laptop_verify.py).
+    app.run(host='0.0.0.0', port=int(os.environ.get("ALGO_PORT", 8000)),
+            debug=True, use_reloader=False)
 
 if __name__ == '__main__':
     run_turtle = False

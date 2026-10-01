@@ -6,6 +6,7 @@ uploads/*
 .DS_STORE
 !.gitkeep
 venv/
+.venv/
 networkx.csv
 test.csv
 .idea/
