@@ -53,6 +53,8 @@ def lan_ips():
 
 
 def main():
+    # Print progress immediately even when output is piped or logged.
+    sys.stdout.reconfigure(line_buffering=True)
     ap = argparse.ArgumentParser()
     ap.add_argument("--algo-port", type=int, default=8000)
     ap.add_argument("--image-port", type=int, default=8001)

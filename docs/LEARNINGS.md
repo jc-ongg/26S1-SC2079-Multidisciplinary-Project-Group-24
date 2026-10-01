@@ -19,3 +19,4 @@
 - [2026-09-17] The two MDP models are not interchangeable: onnx is YOLOv8m-SEG (needs task='segment' or ultralytics returns junk class ids and conf>1.0), has CIRCLE but NO 'stop' class; best.pt is a detect model whose class names are already the mapped target ids. Check the assessment image list against the label set before picking.
 - [2026-09-17] Load optional ML weights lazily, not at import: the Algo server did `yolo_model = YOLO(path)` at module level, so deleting an unused model would have killed path planning too.
 - [2026-10-01] The tablet L/R buttons send FL00/FR00, which after the switch to parameterised TURNL/TURNR became "turn 0 degrees". Legacy turns with no angle now default to 90.
+- [2026-10-01] To make another laptop reproduce a working run, pin from `pip freeze` of the venv that actually ran (the requirements.txt was all >=) and replay recorded inputs from that run (golden/ + laptop_verify.py); a fresh clone + install then matched 7/7.
