@@ -55,7 +55,9 @@ def service_specs(args):
                   if trial else [str(image_py), "main.py"])
     specs = [
         ("Algo", [str(algo_py), "main.py"], ALGO,
-         {"ALGO_PORT": str(args.algo_port)}, args.algo_port, "/status"),
+         {"ALGO_PORT": str(args.algo_port), "MDP_MOVEMENT_PROFILE": args.movement_profile,
+          "MDP_REVERSE_CALIBRATION": args.reverse_calibration,
+          "MDP_FORWARD_CALIBRATION": args.forward_calibration}, args.algo_port, "/status"),
         ("cv-trial" if trial else "image-api", cv_command, ALGO if trial else IMAGE_API,
          {"IMAGE_API_PORT": str(args.image_port)}, args.image_port, "/health"),
     ]
@@ -81,9 +83,14 @@ def main():
     ap.add_argument("--algo-port", type=int, default=8000)
     ap.add_argument("--image-port", type=int, default=8001)
     ap.add_argument("--cv-backend", choices=("onnx", "trial"), default="onnx")
+    ap.add_argument("--movement-profile", choices=("original", "measured25"), default="original")
+    ap.add_argument("--reverse-calibration", choices=("original", "speed50-v2"), default="original")
+    ap.add_argument("--forward-calibration", choices=("original", "speed50-v2"), default="original")
     ap.add_argument("--python", help="Existing Python environment for both services")
     ap.add_argument("--check", action="store_true", help="Check files/health only; start nothing")
     args = ap.parse_args()
+    if args.movement_profile != "original" and (args.reverse_calibration != "original" or args.forward_calibration != "original"):
+        ap.error("speed50-v2 calibration requires --movement-profile original")
     if args.algo_port == args.image_port or not all(
             1 <= port <= 65535 for port in (args.algo_port, args.image_port)):
         ap.error("Choose two different ports in 1..65535")
@@ -92,6 +99,9 @@ def main():
     for path in missing:
         print(f"Missing: {path}")
     print(f"CV backend: {args.cv_backend}" + (" (temporary best.pt model)" if args.cv_backend == "trial" else ""))
+    print(f"Movement profile: {args.movement_profile}; motor speed: {25 if args.movement_profile == 'measured25' else 50}")
+    print(f"Reverse calibration: {args.reverse_calibration}")
+    print(f"Forward calibration: {args.forward_calibration}")
     for name, _, _, _, port, health in specs:
         print(f"{name}: {'healthy' if up(f'http://127.0.0.1:{port}{health}') else 'not healthy'} on :{port}")
     ips = lan_ips()
@@ -132,7 +142,8 @@ def main():
             raise RuntimeError(f"Startup timed out: {pending}")
         pi_ips = [ip for ip in ips if ip.startswith("192.168.50.")]
         host = pi_ips[0] if pi_ips else "<laptop Wi-Fi IP>"
-        print(f"Ready. On the Pi, YOU can run: LAPTOP_IP={host} python3 -u task1_main.py", flush=True)
+        option = " --calibrated" if args.movement_profile == "measured25" else ""
+        print(f"Ready. On the Pi, YOU can run: LAPTOP_IP={host} python3 -u task1_main.py{option}", flush=True)
         print(f"CV images: http://127.0.0.1:{args.image_port}/stitch", flush=True)
         print("Ctrl-C stops these laptop servers only.", flush=True)
         while all(proc.poll() is None for *_, proc in procs):

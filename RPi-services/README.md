@@ -16,6 +16,22 @@ From the repository root:
 under `RPi-services/logs/`, and Ctrl-C stops only its own child servers.
 Stop existing servers yourself before using it. No Pi controller is launched.
 
+## Optional calibration trials
+
+The default command above retains original turns. To select the latest speed50
+forward and reverse measurements, add both options:
+
+```powershell
+.\Algo\.venv-cv-win\Scripts\python.exe -u RPi-services/laptop_start.py --python .\Algo\.venv-cv-win\Scripts\python.exe --cv-backend trial --forward-calibration speed50-v2 --reverse-calibration speed50-v2
+```
+
+`GET /status` identifies the base profile, recommended speed and both overlays.
+Each overlay can be rolled back independently with `original`. The rejected
+`--movement-profile measured25` is preserved for recovery but cannot be mixed
+with these overlays. See [calibration status](../Algo/CALIBRATION.md). Changing
+files or making a Git commit does not reload a running server; no service is
+restarted as part of repository tidying.
+
 ## Fresh temporary-CV environment
 
 Do not copy virtual environments between computers/operating systems. The

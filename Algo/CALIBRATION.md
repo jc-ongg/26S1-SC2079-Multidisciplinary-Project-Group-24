@@ -1,8 +1,28 @@
-# Active movement baseline — 2026-10-01
+# Movement profiles and calibration — updated 2026-10-02
 
-User-approved: **10 cm per grid cell in both directions; keep original turns.**
+Straight scaling remains **10 cm per grid cell** in both directions. Original
+turns are still the default when no calibration options are specified. The
+latest speed50 measurements are selectable trials, not validated arena tuning.
+Do not confuse source defaults with a server's already loaded configuration.
 
-| Setting | Active value |
+| Choice | Configuration | Status |
+| --- | --- | --- |
+| Original baseline | `MDP_MOVEMENT_PROFILE=original`, both overlays `original` | Default; preserved rollback |
+| New speed50 forward | `MDP_FORWARD_CALIBRATION=speed50-v2` | Provisional; [values](../docs/FORWARD_CALIBRATION_SPEED50.md) |
+| New speed50 reverse | `MDP_REVERSE_CALIBRATION=speed50-v2` | Provisional; [values](../docs/REVERSE_CALIBRATION_SPEED50.md) |
+| Old speed25 experiment | `MDP_MOVEMENT_PROFILE=measured25` | Rejected twice; reference only |
+
+The two speed50 overlays can be enabled together with base profile `original`.
+They cannot be mixed with `measured25`. On 2026-10-01 both overlays were loaded
+into Algo8000; that is a historical runtime observation, not proof they are
+running now. Check `GET /status` for profile, speed and both overlays.
+
+The physical Pi is no longer accessible to the user as of 2026-10-02. Repository
+changes must not be described as deployed or physically tested there.
+
+## Original rollback baseline
+
+| Setting | Original value |
 | --- | --- |
 | Straight / reverse cm per grid cell | 10 / 10 |
 | Forward-left longitudinal / lateral cells | 2 / 4 |
@@ -15,7 +35,8 @@ User-approved: **10 cm per grid cell in both directions; keep original turns.**
 | BR straight before / after cm, reverse | 0 / 4 |
 | Pi default speed | 50, unchanged |
 
-The rejected padded-turn calibration was NOT reapplied.
+The old padded speed25 calibration remains selectable for recovery, but was
+rejected again after testing. See [historical trial](../docs/CALIBRATION_TRIAL.md).
 [MOVEMENT_CALIBRATION.md](MOVEMENT_CALIBRATION.md) preserves that historical
 experiment; its deployment/test commands are not current instructions.
 

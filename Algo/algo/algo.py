@@ -164,12 +164,19 @@ class PathFinder:
                 
                 size = len(indices)
                 adj_matrix = np.zeros((size, size))
-                for s in range(size - 1):
-                    for e in range(s + 1, size):
-                        start_node = active_items[indices[s]]
-                        end_node = active_items[indices[e]]
-                        dist = self.weight_cache.get((start_node, end_node), 1e9)
-                        adj_matrix[s][e] = adj_matrix[e][s] = dist
+                if DIRECTIONAL_MOVEMENT:
+                    for s in range(size):
+                        for e in range(size):
+                            if s != e:
+                                adj_matrix[s][e] = self.weight_cache.get(
+                                    (active_items[indices[s]], active_items[indices[e]]), 1e9)
+                else:
+                    for s in range(size - 1):
+                        for e in range(s + 1, size):
+                            start_node = active_items[indices[s]]
+                            end_node = active_items[indices[e]]
+                            dist = self.weight_cache.get((start_node, end_node), 1e9)
+                            adj_matrix[s][e] = adj_matrix[e][s] = dist
                 
                 # Treat as an open path by zeroing return-to-start cost
                 adj_matrix[:, 0] = 0
@@ -267,7 +274,9 @@ class PathFinder:
     def _batch_calculate_segments(self, states: List[CellState]):
         """Runs A* between all pairs of required states."""
         for i in range(len(states)):
-            for j in range(i + 1, len(states)):
+            for j in range(0 if DIRECTIONAL_MOVEMENT else i + 1, len(states)):
+                if i == j:
+                    continue
                 self._run_astar(states[i], states[j])
 
     def _run_astar(self, start: CellState, goal: CellState):
@@ -311,7 +320,9 @@ class PathFinder:
 
     def _archive_path(self, s, e, route, total_cost):
         """Stores the result of a successful A* search."""
-        self.weight_cache[(s, e)] = self.weight_cache[(e, s)] = total_cost
+        self.weight_cache[(s, e)] = total_cost
+        if not DIRECTIONAL_MOVEMENT:
+            self.weight_cache[(e, s)] = total_cost
         
         coords = []
         curr = (e.x, e.y, e.direction)
@@ -321,7 +332,8 @@ class PathFinder:
         coords.append(curr)
         
         self.route_cache[(s, e)] = coords[::-1]
-        self.route_cache[(e, s)] = coords
+        if not DIRECTIONAL_MOVEMENT:
+            self.route_cache[(e, s)] = coords
 
     @staticmethod
     def _generate_bitmasks(n):

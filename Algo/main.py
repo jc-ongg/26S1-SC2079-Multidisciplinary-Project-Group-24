@@ -50,7 +50,10 @@ def status():
     This is a health check endpoint to check if the server is running
     :return: a json object with a key "result" and value "ok"
     """
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "movement_profile": consts.MOVEMENT_PROFILE,
+                    "recommended_motor_speed": consts.RECOMMENDED_MOTOR_SPEED,
+                    "reverse_calibration": consts.REVERSE_CALIBRATION,
+                    "forward_calibration": consts.FORWARD_CALIBRATION})
 
 def convert_input(request):
     # Example : STATUS, RETRY_FALSE, OBSTACLE LIST, 4, 1; 11; 12; UP | 2; 4; 7; UP | 3; 14; 6; UP | 4; 6; 13; UP

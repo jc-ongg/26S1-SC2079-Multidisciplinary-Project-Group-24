@@ -17,6 +17,7 @@ class MovementBaselineTests(unittest.TestCase):
                     self.assertEqual(command_converter(f'{prefix}{cells:02}'),
                                      f'center,0,{direction},{cells * 10}')
 
+    @unittest.skipUnless(consts.MOVEMENT_PROFILE == 'original' and consts.REVERSE_CALIBRATION == 'original' and consts.FORWARD_CALIBRATION == 'original', 'original-only regression')
     def test_original_turn_geometry_is_preserved(self):
         self.assertEqual((consts.FORWARD_LEFT_LONGITUDINAL_OFFSET,
                           consts.FORWARD_LEFT_LATERAL_OFFSET), (2, 4))
@@ -30,6 +31,7 @@ class MovementBaselineTests(unittest.TestCase):
                           consts.REVERSE_LEFT, consts.REVERSE_RIGHT),
                          ((3, 5), (0, 4), (0, 2), (0, 4)))
 
+    @unittest.skipUnless(consts.MOVEMENT_PROFILE == 'original' and consts.REVERSE_CALIBRATION == 'original' and consts.FORWARD_CALIBRATION == 'original', 'original-only regression')
     def test_original_turn_padding_commands(self):
         # North-facing representative endpoints for FL, FR, BL and BR.
         cases = [

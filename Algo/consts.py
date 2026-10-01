@@ -1,4 +1,21 @@
 from enum import Enum
+import os
+
+# Explicit opt-in: the previously tried speed-25 profile is NOT the default.
+MOVEMENT_PROFILE = os.environ.get("MDP_MOVEMENT_PROFILE", "original")
+if MOVEMENT_PROFILE not in ("original", "measured25"):
+    raise ValueError("MDP_MOVEMENT_PROFILE must be original or measured25")
+RECOMMENDED_MOTOR_SPEED = 25 if MOVEMENT_PROFILE == "measured25" else 50
+REVERSE_CALIBRATION = os.environ.get("MDP_REVERSE_CALIBRATION", "original")
+FORWARD_CALIBRATION = os.environ.get("MDP_FORWARD_CALIBRATION", "original")
+if FORWARD_CALIBRATION not in ("original", "speed50-v2"):
+    raise ValueError("MDP_FORWARD_CALIBRATION must be original or speed50-v2")
+if REVERSE_CALIBRATION not in ("original", "speed50-v2"):
+    raise ValueError("MDP_REVERSE_CALIBRATION must be original or speed50-v2")
+if MOVEMENT_PROFILE != "original" and (REVERSE_CALIBRATION != "original" or FORWARD_CALIBRATION != "original"):
+    raise ValueError("speed50-v2 calibration requires the original speed-50 profile")
+DIRECTIONAL_MOVEMENT = (MOVEMENT_PROFILE == "measured25" or
+                        REVERSE_CALIBRATION == "speed50-v2" or FORWARD_CALIBRATION == "speed50-v2")
 
 # =========== ADJUST ACCORDINGLY TO ROBOT'S MOVEMENT CHARACTERISTICS ===========
 # Arena cells are 10cm (2m / 20 cells) and the STM's FWD unit is ~1cm
@@ -23,6 +40,27 @@ FORWARD_RIGHT = (0, 4) # Move forward X cm, turn right, move forward Y cm
 FORWARD_LEFT = (3, 5)
 REVERSE_RIGHT = (0, 4) # Move backward X cm, turn right, move backward Y cm
 REVERSE_LEFT = (0, 2)
+if MOVEMENT_PROFILE == "measured25":
+    # Rounded grid endpoints with before/after straight corrections (cm).
+    # Provisional trial derived from the user's bare-turn measurements at 25.
+    FORWARD_LEFT_LONGITUDINAL_OFFSET, FORWARD_LEFT_LATERAL_OFFSET = 3, 3
+    FORWARD_RIGHT_LONGITUDINAL_OFFSET, FORWARD_RIGHT_LATERAL_OFFSET = 4, 3
+    BACKWARD_LEFT_LONGITUDINAL_OFFSET, BACKWARD_LEFT_LATERAL_OFFSET = 5, 4
+    BACKWARD_RIGHT_LONGITUDINAL_OFFSET, BACKWARD_RIGHT_LATERAL_OFFSET = 5, 3
+    FORWARD_LEFT, FORWARD_RIGHT = (5, 8), (8, 4)
+    REVERSE_LEFT, REVERSE_RIGHT = (5, 7), (6, 3)
+if REVERSE_CALIBRATION == "speed50-v2":
+    # New bare-turn measurements at speed50: REVL 29.5/15cm, REVR 34/21.5cm.
+    # Whole-cell targets and integer straight compensation; trial, not validated.
+    BACKWARD_LEFT_LONGITUDINAL_OFFSET, BACKWARD_LEFT_LATERAL_OFFSET = 3, 2
+    BACKWARD_RIGHT_LONGITUDINAL_OFFSET, BACKWARD_RIGHT_LATERAL_OFFSET = 4, 3
+    REVERSE_LEFT, REVERSE_RIGHT = (1, 5), (6, 8)
+if FORWARD_CALIBRATION == "speed50-v2":
+    # New table results at speed50: TURNL 15/33cm, TURNR 25/37.5cm.
+    # Treat as bare 90-degree turns; preserve the reverse profile independently.
+    FORWARD_LEFT_LONGITUDINAL_OFFSET, FORWARD_LEFT_LATERAL_OFFSET = 2, 4
+    FORWARD_RIGHT_LONGITUDINAL_OFFSET, FORWARD_RIGHT_LATERAL_OFFSET = 3, 4
+    FORWARD_LEFT, FORWARD_RIGHT = (5, 7), (5, 3)
 # ============================ A5 Hardcoded Path ===============================
 A5_INITIAL_INPUT = "CONTROL - ['center,0,forward,40', 'SNAP1']"
 A5_PIVOT_INPUT = "CONTROL - ['left,90,reverse,0', 'center,0,forward,120', 'left,90,forward,0', 'left,90,forward,0', 'SNAP1']"
