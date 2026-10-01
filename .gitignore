@@ -6,3 +6,29 @@
 # STM32CubeIDE build output
 STM32/Debug/
 STM32/Release/
+
+# Local runtimes and generated artifacts are never source changes.
+**/.venv*/
+**/venv/
+**/__pycache__/
+*.py[cod]
+**/node_modules/
+/output/
+/tmp/
+**/uploads/
+**/own_results/
+**/runs/
+*.log
+logfile.txt
+
+# Per-machine Android/IDE state and build output.
+**/.gradle/
+**/.kotlin/
+**/build/
+**/local.properties
+**/.idea/workspace.xml
+**/.idea/deploymentTargetSelector.xml
+
+# Models are release assets; existing tracked weights remain tracked.
+*.onnx
+*.pt
