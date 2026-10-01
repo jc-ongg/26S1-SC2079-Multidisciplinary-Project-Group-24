@@ -36,7 +36,6 @@ PI_HOST=http://<pi>:5000 API_HOST=http://localhost:8001 npm run dev
 
 ## Where the Pi orchestration lives
 
-`final_week_8.py` and `communication/` (stm32.py protocol layer, android.py
-`//FRAME//` framing, android_protocol.py) run on the Pi's SD card and are not
-in this commit -- push them from the Pi when it is back on the network. Their
-behaviour and the STM wire protocol are documented in `../docs/RPI_INTERFACE.md`.
+`../RPi/` -- `final_week_8.py` and the `communication/` package (STM protocol,
+Bluetooth `//FRAME//` link). Copy it to `~/SC2079-MDP/rpi/` on the Pi. See
+`../RPi/README.md`.
