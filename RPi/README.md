@@ -3,6 +3,8 @@
 Core source was recovered from `/home/nat/SC2079-MDP/rpi` on 2026-10-01.
 This replaces a reconstructed branch copy where it conflicted with the Pi.
 The Pi is not a Git checkout; pushing this repository does not deploy it.
+The user no longer has access to the Pi as of 2026-10-02. Live state and any
+later changes are unknown; this repository is a source snapshot with local fixes.
 
 ## Entry points
 
@@ -29,6 +31,9 @@ Use your actual laptop Wi-Fi address. Optional overrides are `CV_IP`,
 `ALGO_PORT`, `IMAGE_API_PORT`, and `STM_SERIAL_PORT`.
 Default ports are Algo 8000 and CV 8001. Default motion speed remains **50**.
 Do not apply speed-25 turn measurements as if they were verified at speed 50.
+The launcher checks Algo's profile before opening hardware. `--calibrated`
+selects the rejected speed25 trial, not the new speed50 overlays. For speed50
+forward/reverse trials, configure Algo's overlay options and run Task1 normally.
 
 Current Task 1 needs `requirements-task1.txt`, the OS Bluetooth tools and
 `rpicam-still`. Historical `requirements.txt` is preserved from the Pi;
@@ -53,3 +58,9 @@ compare each target against its expected original hash, review a narrow patch,
 and test before restarting. Keep the backup outside the live source directory.
 
 See [repository guide](../docs/REPOSITORY_GUIDE.md) for what remains undeployed.
+
+Known unresolved issue: `RaspberryPi.stop()` does not terminate/join all its
+workers. In the last accessible session, two Task1 parents and a missed STM ACK
+were observed after SSH resets/restarts. Do not mistake worker children for
+duplicate controllers, but do not run two independent parents on the same links.
+This cleanup does not claim to fix shutdown or validate it on the unavailable Pi.
