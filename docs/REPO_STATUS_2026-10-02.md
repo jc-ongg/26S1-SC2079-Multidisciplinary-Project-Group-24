@@ -6,8 +6,9 @@ Later stash audit: [STASH_AUDIT_2026-10-02.md](STASH_AUDIT_2026-10-02.md) explai
 the 28k saved paths and records the recovered reference documents. Source work
 from both stashes was already integrated; old generated environments remain
 in named local archive tags, not in the active project or GitHub uploads.
-The stash entries themselves are retained pending the user's explicit approval
-to clear the old list after archiving.
+The user subsequently approved clearing the old list. Both verified active
+stash entries were removed; complete snapshots remain in their local recovery
+tags. No files on disk were deleted.
 
 Use `main` for the integrated Android, Algo, laptop CV, RPi snapshot and STM32
 sources. Existing component branches are compatibility/recovery names pointing
@@ -17,16 +18,18 @@ should use a focused `codex/<feature>` branch from main and merge back after tes
 This cleanup commits the existing turn-profile work, guarded Pi launcher and
 documentation in separate logical commits. Retained branches are fast-forwarded
 to the new main, with normal pushes only. It does not squash shared history,
-force-push, delete branches, erase the two GitHub Desktop stashes, or remove
-generated files/environments from disk.
+force-push, delete branches, erase the saved stash contents, or remove generated
+files/environments from disk. The old active stash entries were cleared only
+after named recovery tags and useful-source reconciliation were verified.
 
 Recovery refs:
 
 - Previous integration head: `62e253dd1c145628e580f56cace93251a954720d`.
 - Checkpoint tag: `archive/2026-10-02/before-repository-tidy`.
 - Older component tips: `archive/2026-10-01/*` annotated tags.
-- Both existing stashes remain untouched; do not pop whole stashes containing
-  old environments and thousands of generated files.
+- Both old stash contents remain in local `archive/2026-10-02/stash-*` tags;
+  their active stash entries were removed with approval. Do not restore whole
+  snapshots containing old environments and thousands of generated files.
 - Ignored local backup: `output/repo-tidy-20261002/pre-cleanup.patch` and
   `working-files-before-cleanup.zip`. ZIP SHA256:
   `681af9875dc8fa795cccaceb7cbd8106384be8eb6bd84c06573c7abec2001ed2`.

@@ -13,6 +13,12 @@ Do not continue attempting SSH or claim this repository is a live mirror.
 All following runtime observations are historical. Repo cleanup is local/GitHub
 only; the last-known launcher patch and the source backup remain documented.
 Use [latest status](REPO_STATUS_2026-10-02.md) before acting on the older notes.
+Later cleanup recovered five project-reference documents, verified existing
+source was integrated, and archived both complete old stashes under local
+`archive/2026-10-02/stash-task1-services` and `archive/2026-10-02/stash-main` tags.
+The user then approved removing the two active stash entries; the stash list
+is empty and disk files were not deleted. Historical `stash@{0}`/`stash@{1}`
+indices below are no longer valid. See [stash audit](STASH_AUDIT_2026-10-02.md).
 
 The final accessible troubleshooting session found two independent Task1
 parents (1181 and1478), a missing ACK after FWD/50/74, and garbled STM telemetry

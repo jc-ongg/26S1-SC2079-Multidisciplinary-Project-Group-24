@@ -3,6 +3,10 @@
 Updated repository status on **2026-10-02**: see
 [current status and cleanup](REPO_STATUS_2026-10-02.md). The Pi is no longer
 accessible; runtime/deployment observations below describe the older session.
+The old stash entries were subsequently removed with user approval after their
+complete contents were archived locally and missing references were committed.
+Use named recovery tags, not historical stash indices; see
+[stash audit](STASH_AUDIT_2026-10-02.md).
 
 ## Where to work
 

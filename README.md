@@ -5,6 +5,9 @@ GitHub Desktop stashes were kept for recovery; no history was force-pushed.
 The retained branches share the integrated version; their old snapshots are
 available through `archive/2026-10-01/*` tags. Each branch contains the whole
 project, including all four components.
+The two old active stash entries were later cleared with approval; their full
+snapshots remain in local `archive/2026-10-02/stash-*` recovery tags. Useful
+source and reference documents are committed. See [stash audit](docs/STASH_AUDIT_2026-10-02.md).
 
 | Component | Current entry point | Runs on |
 | --- | --- | --- |

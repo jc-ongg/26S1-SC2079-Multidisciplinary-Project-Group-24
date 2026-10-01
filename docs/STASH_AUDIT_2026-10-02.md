@@ -46,11 +46,16 @@ of environment/output files to GitHub. They protect saved objects from local
 Git garbage collection; they are not a separate-machine backup of the whole repo.
 Selective document recovery archive: `output/stash-review-20261002/reference-documents.tar`.
 
-The active stash entries remain until the user approves removing them from that
-list. Keeping them visible therefore still shows large old counts in GitHub
-Desktop even though all meaningful source is integrated and recoverable. To
-fully clear the display, approve removing those two active stash entries after
-verifying the recovery tags. This must not delete files on disk or archive tags.
+After user approval, both old active stash entries were removed on 2026-10-02.
+The active stash list is now empty. Both recovery tags were verified against
+the original stash hashes before and after removal. No files on disk, saved
+snapshot contents or archive tags were deleted. GitHub Desktop may need a
+refresh to stop displaying its cached old counts. Future new stashes are not
+covered by this cleanup.
+
+To inspect an old saved file, use its named archive tag instead of the removed
+`stash@{0}`/`stash@{1}` indices. Recover selectively after comparing with main;
+do not restore a whole archive into the active project.
 
 Calibration lives in `Algo/consts.py` (plural). Its selectable profiles were
 pushed in commit `ebf3f0bc`, then integrated into all retained branches. Base
