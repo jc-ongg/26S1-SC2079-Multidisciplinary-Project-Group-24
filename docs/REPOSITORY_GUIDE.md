@@ -1,0 +1,93 @@
+# Repository consolidation — 2026-10-01
+
+## Where to work
+
+Use **main** for integrated Android, Algo, laptop CV and recovered core Pi code.
+Create narrowly scoped feature branches from main; review diffs and merge back.
+Do not switch GitHub Desktop branches while services depend on files in the
+checkout. A branch switch may remove source, virtualenv files or image folders.
+
+| Preserved branch | Role after consolidation |
+| --- | --- |
+| android | Historical Android work, already an ancestor of main |
+| rpi/stm-protocol-and-a5 | Protocol/A5 history, merged without rewriting it |
+| rpi/task1-services-and-fixes | Teammate's laptop services and reconstructed Pi source, merged |
+| codex/repository-consolidation | Integration/recovery branch, retained |
+
+Old branches and the two existing GitHub Desktop stashes were **not deleted**.
+Useful stashed Android Save/Use and temporary CV source were recovered.
+Do not pop either whole stash: they also contain thousands of runtime/generated
+files and old environments. Restore specific files only after inspecting them.
+Assessment PDFs and generated artifacts left in those stashes remain recoverable.
+
+The root .gitignore excludes virtual environments, generated captures/logs,
+build output and machine-local IDE settings. These were not erased from disk.
+The existing tracked Algo/best.pt remains in Git; new weights are ignored.
+
+## Pi source of truth and backup
+
+Actual source: `/home/nat/SC2079-MDP/rpi`, accessed via SSH as nat at 192.168.50.5.
+It is not itself a Git repository. The core controller and communication files
+were recovered from the Pi, not replaced with the teammate's reconstructed code.
+Historical standalone experiments and all versioned Task 2 variants remain in
+the source snapshot; only the core and selected Task 2 runners are mirrored here.
+
+Source-only snapshot created before consolidation:
+
+`/home/nat/mdp-backups/repo-consolidation-20261001-bzHGLl/rpi-source.tar.gz`
+
+SHA-256:
+`e4e1b1833374645b1007e8e7846b5fa544a80b8d2cb5528bd640b95cec04ba8d`
+
+A matching local archive is under ignored
+`output/repo-cleanup-20261001/rpi-source.tar.gz`. It contains source scripts,
+not installed packages, OS configuration, firmware or captured images.
+The Pi's date is offset from the laptop; use hashes and inspection, not timestamps,
+to decide which source is newer.
+
+## Deployment boundary
+
+No robot program was started, stopped, or restarted during consolidation.
+Task 1 and both laptop servers were already running when checked.
+No follow-up repository changes have been deployed over the live Pi files.
+
+Repository-only follow-ups needing a reviewed Pi deployment after you stop Task 1:
+
+- Environment-variable settings (LAPTOP_IP and optional ports/serial path).
+- Safe run_week8.sh wrapper instead of the old process-killing sensor launcher.
+- Retry original CV HTTP 404 as a no-detection result.
+- Updated offline test runner and calibration-plan printer.
+
+Back up again immediately before deployment; verify current file hashes, compare
+the diff against this snapshot, and apply only the selected changes. Do not
+bulk overwrite the Pi, including its logs, diagnostics, firmware or newer edits.
+Review `git diff` in this repository before committing any later Pi-to-Git sync.
+
+## Verification and limitations
+
+- Android debug build and local unit-test task completed; no APK was installed.
+- Mocked Pi tests cover Bluetooth framing, manual controls, ACK gating,
+  quiet telemetry, capture/retry serialization and no-detection responses.
+- Algo/CV tests cover 10 cm scaling, original turn constants, temporary-model
+  label mapping, image errors and output-folder recovery.
+- Both recorded map payloads produce the expected STM command lists offline.
+- The live laptop health endpoints answered on ports 8000/8001. CV reported
+  temporary best.pt. This does not verify a fresh physical camera capture.
+- The Pi itself successfully reached both laptop health endpoints over Wi-Fi
+  at 192.168.50.181 during the final check; no motor commands were sent.
+- A test import triggered Ultralytics to install optional pi-heif 1.4.0 in the
+  local ignored CV environment. Algo no longer imports the ML stack just for
+  path planning, and regression tests disable Ultralytics auto-installation.
+- Original ONNX model inference and Task 2 runners are not validated here.
+
+Known controller follow-ups: the legacy path queue is indexed by unadjusted
+planner steps even though adjusted STM commands can add/remove moves. Intermediate
+tablet pose updates and automatic failed-obstacle retry start poses can therefore
+be inaccurate. The controller also needs a separately tested new-run reset/network
+failure pass. These are not solved by changing the distance multiplier; avoid
+relying on automatic retries as a calibration measurement. Stop/restart Task 1
+yourself between controlled tests, and inspect the command log.
+
+The 10 cm grid conversion is approved, but the retained turns are a baseline,
+not newly validated calibration. The rejected padded-turn experiment stays
+reverted. See [calibration](../Algo/CALIBRATION.md).

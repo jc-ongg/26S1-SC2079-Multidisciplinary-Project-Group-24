@@ -1,3 +1,10 @@
+# Historical session notes
+
+These notes include superseded configurations and experimental commands.
+Use the [current startup guide](../README.md), not these notes, as the runbook.
+In particular, Task 1 is task1_main.py -> final_week_8_backup.py; do not launch
+or kill hardware processes merely because an old note describes doing so.
+
 - [2026-09-11] MDP Pi (Trixie, Python 3.13): pybluez is impossible (distutils removed, no libbluetooth headers, no internet in hotspot mode) - use stdlib socket.AF_BLUETOOTH + 'sdptool add --channel=1 SP' with bluetoothd --compat instead.
 - [2026-09-11] Pi system python has no pip and PEP 668 blocks installs; pure-python wheels can be installed by unzipping into ~/.local/lib/python3.13/site-packages/.
 - [2026-09-11] Mac roams off the Pi hotspot back to campus WiFi mid-task and silently kills SSH - run long Pi scripts detached with setsid nohup and poll the log.

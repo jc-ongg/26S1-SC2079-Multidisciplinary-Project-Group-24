@@ -1,5 +1,9 @@
 # REVERTED: historical provisional Task 1 movement calibration
 
+**Current approved settings are in [CALIBRATION.md](CALIBRATION.md): 10 cm per
+cell, original turns, default speed 50.** Everything below is an archived
+experiment/rollback record; do not execute its old deployment instructions.
+
 **Rolled back at the user's request on 2026-10-01.** The Algo constants and
 route-planning changes below are no longer active. Task 1's speed-25 override
 was removed, restoring its original default speed 50. The CV crash fix remains.

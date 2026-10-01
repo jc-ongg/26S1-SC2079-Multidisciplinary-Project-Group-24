@@ -5,6 +5,12 @@
   </h1>
 </p>
 
+## Current integration setup
+
+See [the root startup guide](../README.md) and [active calibration](CALIBRATION.md).
+Algo runs on the laptop at **port 8000**; the separate CV service uses **8001**.
+The original instructions below describe dependencies, not the whole robot setup.
+
 ## Code Setup
 
 ```bash
@@ -17,4 +23,5 @@ Start the server by
 python main.py
 ```
 
-The server will be running at `localhost:5001` and the frontend will run on `localhost:3000`.
+The Algo server listens on `0.0.0.0:8000` by default (`ALGO_PORT` overrides it).
+The optional Simulator/frontend is separate; it is not needed for tablet-to-Pi Task 1.

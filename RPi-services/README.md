@@ -1,88 +1,76 @@
-# Laptop services for Task 1
+# Laptop Algo + CV services
 
-Task 1 runs on three machines: the tablet sends the map over Bluetooth to the
-Pi, the Pi asks a **laptop** for the path and for image recognition, and drives
-the STM. This folder is the laptop half. Any team laptop can be the one.
+Algo is on port **8000**; CV is on **8001**. Both run on the laptop, not the Pi.
+Only one CV backend should own 8001 at a time.
 
-```
-Algo server   :8000   path planning           (../Algo, POST /path)
-image-api     :8001   image recognition       (image-api/, POST /predict)
-                      tiled RAW display       (GET /stitch -- Task 1 needs it to qualify)
-```
+## Existing Windows environment
 
-## Set up a laptop (once)
+From the repository root:
 
-Needs Python 3.12 or 3.13 (or [uv](https://docs.astral.sh/uv/), which fetches
-Python itself and installs much faster), and the
-[GitHub CLI](https://cli.github.com/) logged in (`gh auth login`) to fetch the
-model, since the repo is private.
-
-```bash
-cd RPi-services
-python laptop_setup.py
+```powershell
+.\Algo\.venv-cv-win\Scripts\python.exe RPi-services/laptop_start.py --python .\Algo\.venv-cv-win\Scripts\python.exe --cv-backend trial --check
+.\Algo\.venv-cv-win\Scripts\python.exe -u RPi-services/laptop_start.py --python .\Algo\.venv-cv-win\Scripts\python.exe --cv-backend trial
 ```
 
-This builds `Algo/.venv` and `image-api/venv` with the **exact package versions**
-from the laptop that ran Task 1 3/3, and downloads `best_v11i_m.onnx` (109 MB,
-too big for git) from the
-[cv-model-v11i release](https://github.com/jc-ongg/26S1-SC2079-Multidisciplinary-Project-Group-24/releases/tag/cv-model-v11i),
-checking its checksum. Without `gh`, download it from that page into
-`image-api/` by hand and run setup again.
+`--check` starts nothing. Normal launch refuses occupied ports, appends logs
+under `RPi-services/logs/`, and Ctrl-C stops only its own child servers.
+Stop existing servers yourself before using it. No Pi controller is launched.
 
-## Every session
+## Fresh temporary-CV environment
 
-```bash
-python laptop_start.py       # starts both servers, prints this laptop's IP
-python laptop_verify.py      # in another terminal: proves it matches the 3/3 run
+Do not copy virtual environments between computers/operating systems. The
+checked local `Algo/.venv` was a macOS environment, not usable Windows setup.
+Create a NEW environment if an existing one is broken; preserve it first.
+
+```powershell
+py -3.11 -m venv Algo/.venv-cv-win
+.\Algo\.venv-cv-win\Scripts\python.exe -m pip install -r Algo/requirements-cv-trial.txt
 ```
 
-`laptop_verify.py` replays recorded inputs from the 3/3 run (`golden/`) and
-checks the answers are the same: two map layouts the tablet sent, against the
-exact commands the robot received; the three captures from that run (right
-arrow 38, S 28, 2 12) plus a bullseye face; and `/stitch`. If it prints
-`ALL MATCH`, this laptop behaves like the one that ran 3/3.
+The temporary detector uses the existing tracked `Algo/best.pt`.
+It is explicitly labelled temporary by `GET /health`. Its class names are
+numeric MDP image IDs; do not apply the original ONNX index mapping to it.
+See [temporary CV details](../Algo/CV_TRIAL.md).
 
-Then point the Pi at this laptop (`laptop_start.py` prints the line to use):
+## Original ONNX backend
 
-```bash
-ssh -t nat@192.168.50.5 'cd ~/SC2079-MDP/rpi && LAPTOP_IP=192.168.50.xxx ./run_week8.sh'
+Expected file: `RPi-services/image-api/best_v11i_m.onnx`.
+Expected SHA-256:
+`8c4f382f800d123e069fe93f0069e279175594c0a6ef631c699fbc3d957ee7d5`.
+
+The teammate's setup points to the private
+[cv-model-v11i release](https://github.com/jc-ongg/26S1-SC2079-Multidisciplinary-Project-Group-24/releases/tag/cv-model-v11i).
+Release availability and model inference must be verified on your machine;
+the consolidation did not download this model or validate ONNX predictions.
+
+For a fresh original-backend setup, `laptop_setup.py` uses Python 3.12/3.13
+(or uv), installs the teammate's locked packages and downloads about 109 MB.
+This is opt-in, not part of `--check`. It refuses to overwrite a different
+existing model and verifies a downloaded candidate before installing it.
+
+```powershell
+py -3.12 RPi-services/laptop_setup.py
+py -3.12 RPi-services/laptop_start.py --cv-backend onnx
 ```
 
-The laptop must be on the robot's hotspot (`MDP-group-24`) for the whole run.
-Turn off auto-join for other WiFi networks; if the laptop roams off mid-run,
-path planning and recognition both disappear.
+Do not run setup blindly over someone else's environments. You can also pass
+`--python <existing compatible interpreter>` to the launcher.
 
-After the run, open `http://127.0.0.1:8001/stitch` for the tiled captures to
-show the supervisor.
+`laptop_verify.py` compares two recorded map responses, original ONNX image
+IDs/confidences and stitching. It is **not** an arena calibration or hardware
+test. Temporary `best.pt` is not expected to reproduce ONNX confidences.
 
-## Which model
+## Network and protocol
 
-Recognition uses `best_v11i_m.onnx` (YOLOv8m-seg) through image-api. The Algo
-server can also do recognition with `Algo/best.pt` via `/infer`, but that model
-read arrows and digits worse and is **not** used: `final_week_8.py` sends
-photos to image-api's `/predict`. Keep `task='segment'` in image-api's model
-load, or ultralytics returns junk class ids.
+Keep laptop Wi-Fi on the Pi hotspot and phone USB tethering for internet.
+Use the laptop's **192.168.50.x Wi-Fi address** in Pi settings.
 
-## image-api
+- Algo: `GET /status`, `POST /path` with the text map payload.
+- CV: `GET /health`, `POST /predict` with multipart field `image`.
+- CV result `image_id` is the symbol; confusingly, `obstacle_id` is its numeric
+  image ID. The Pi attaches the actual obstacle number for Android TARGET.
+- Original ONNX uses HTTP 404 for no detections; the repository Pi code retries
+  it as NA. The physical Pi needs the reviewed follow-up patch for that fix.
+- `GET /stitch` returns the annotated image montage after detections.
 
-- `POST /predict` (field `image`) -> `{image_id, obstacle_id, conf, xyxy, bullseye}`.
-  `image_id` is the character, `obstacle_id` is (confusingly) its numeric image id.
-  A bullseye face comes back as `image_id: "NA"` with `bullseye` set, so it is
-  never reported as a target. HTTP 404 means no objects in the frame at all.
-- `GET /stitch` tiles the newest annotated capture of each recognised image
-  from the last 20 minutes.
-- Annotated captures are saved to `image-api/own_results/`.
-
-## viewer (optional)
-
-Live camera monitor with single-shot detection, not needed for a run.
-
-```bash
-cd viewer && npm install
-PI_HOST=http://192.168.50.5:5000 API_HOST=http://localhost:8001 npm run dev
-```
-
-## The Pi side
-
-`../RPi/` -- `final_week_8.py` and the `communication/` package. Copy it to
-`~/SC2079-MDP/rpi/` on the Pi. See `../RPi/README.md`.
+The optional `viewer/` is not required to run Task 1. See [Pi entry points](../RPi/README.md).
