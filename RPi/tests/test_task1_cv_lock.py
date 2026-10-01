@@ -77,8 +77,20 @@ class Task1CVLockTests(unittest.TestCase):
 
     def response(self, image_id='NA', numeric='NA'):
         response = Mock()
+        response.status_code = 200
         response.json.return_value = {'image_id': image_id, 'obstacle_id': numeric}
         return response
+
+    def test_onnx_no_detection_404_is_retried_before_success(self):
+        missing = self.response()
+        missing.status_code = 404
+        self.http.post.side_effect = [missing, self.response('RIGHT', '38')]
+        self.run_commands('SNAP1', 'FIN')
+        self.assertEqual(self.capture.call_count, 2)
+        missing.raise_for_status.assert_not_called()
+        missing.json.assert_not_called()
+        self.assertEqual(self.bot.success_obstacles, ['1'])
+        self.assertEqual(self.bot.movement_lock.releases, 2)
 
     def run_commands(self, *commands):
         self.bot.command_queue.get.side_effect = [*commands, StopIteration]

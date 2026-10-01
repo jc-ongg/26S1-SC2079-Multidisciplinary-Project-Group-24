@@ -106,6 +106,8 @@ def create_app(model, model_path, output_dir, confidence=0.30):
             target = select_target(result, model.names, confidence)
             # Ignore client filenames when constructing local file paths.
             capture_id = f"{time.time_ns()}_{uuid.uuid4().hex}"
+            # Branch switches/cleanup may remove generated output while we run.
+            output_dir.mkdir(parents=True, exist_ok=True)
             image.save(output_dir / f"{capture_id}_original.jpg", quality=95)
             if target is None:
                 LOGGER.info("No target detected in %s", upload.filename)

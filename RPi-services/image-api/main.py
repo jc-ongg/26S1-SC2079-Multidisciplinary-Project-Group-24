@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG, 
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -31,10 +31,10 @@ BULLSEYE_AS_TARGET = os.environ.get("BULLSEYE_AS_TARGET", "0") == "1"
 
 # Class mappings remain the same...
 CLASS_NAMES = {
-    0: '1', 1: '2', 2: '3', 3: '4', 4: '5', 5: '6', 6: '7', 7: '8', 8: '9', 
-    9: 'A', 10: 'B', 11: 'BULLSEYE', 12: 'C', 13: 'CIRCLE', 14: 'D', 
-    15: 'DOWN', 16: 'E', 17: 'F', 18: 'G', 19: 'H', 20: 'LEFT', 
-    21: 'RIGHT', 22: 'S', 23: 'T', 24: 'U', 25: 'UP', 
+    0: '1', 1: '2', 2: '3', 3: '4', 4: '5', 5: '6', 6: '7', 7: '8', 8: '9',
+    9: 'A', 10: 'B', 11: 'BULLSEYE', 12: 'C', 13: 'CIRCLE', 14: 'D',
+    15: 'DOWN', 16: 'E', 17: 'F', 18: 'G', 19: 'H', 20: 'LEFT',
+    21: 'RIGHT', 22: 'S', 23: 'T', 24: 'U', 25: 'UP',
     26: 'V', 27: 'W', 28: 'X', 29: 'Y', 30: 'Z'
 }
 
@@ -151,7 +151,7 @@ def process_legacy_mode(results, signal='C'):
     Process results using the legacy mode logic
     """
     pred_list = []
-    
+
     # Convert YOLO results to the format we need
     for result in results:
         boxes = result.boxes
@@ -160,7 +160,7 @@ def process_legacy_mode(results, signal='C'):
             class_name = CLASS_NAMES.get(cls_index, f"Unknown Class ({cls_index})")
             confidence = float(box.conf[0].item())  # Convert to Python float
             xyxy = box.xyxy[0].cpu().numpy()
-            
+
             pred_list.append({
                 'name': class_name,
                 'confidence': confidence,
@@ -170,7 +170,7 @@ def process_legacy_mode(results, signal='C'):
                 'ymax': float(xyxy[3]),
                 'bboxArea': float((xyxy[2] - xyxy[0]) * (xyxy[3] - xyxy[1]))
             })
-    
+
     # Sort by area, then split the bullseye out of the target candidates.
     #
     # The bullseye is the marker that says "this is an obstacle", not a target
@@ -196,27 +196,27 @@ def process_legacy_mode(results, signal='C'):
         }
 
     pred = 'NA'
-    
+
     if len(pred_list) == 1:
         pred = pred_list[0]
     elif len(pred_list) > 1:
         # Filter by confidence and area
         pred_shortlist = []
         current_area = pred_list[0]['bboxArea']
-        
+
         for pred_item in pred_list:
-            if (pred_item['confidence'] > 0.5 and 
-                ((current_area * 0.8 <= pred_item['bboxArea']) or 
+            if (pred_item['confidence'] > 0.5 and
+                ((current_area * 0.8 <= pred_item['bboxArea']) or
                  (pred_item['name'] == '1' and current_area * 0.6 <= pred_item['bboxArea']))):
                 pred_shortlist.append(pred_item)
                 current_area = pred_item['bboxArea']
-        
+
         if len(pred_shortlist) == 1:
             pred = pred_shortlist[0]
         else:
             # Sort by x position
             pred_shortlist.sort(key=lambda x: x['xmin'])
-            
+
             if signal == 'L':
                 pred = pred_shortlist[0]
             elif signal == 'R':
@@ -226,11 +226,11 @@ def process_legacy_mode(results, signal='C'):
                     if 250 < item['xmin'] < 774:
                         pred = item
                         break
-                
+
                 if isinstance(pred, str):
                     pred_shortlist.sort(key=lambda x: x['bboxArea'])
                     pred = pred_shortlist[-1]
-    
+
     if isinstance(pred, str):
         # No target image. The bullseye still goes out when one was seen, so the
         # caller can distinguish "obstacle, wrong face" from "nothing there".
@@ -282,20 +282,20 @@ async def predict(image: UploadFile = File(...)):
         contents = await image.read()
         pil_image = Image.open(io.BytesIO(contents)).convert("RGB")
         np_image = np.array(pil_image)
-        
+
         try:
             results = model.predict(np_image, verbose=True)
-            
+
             if REACT_MODE:
                 processed_results = []
-                
+
                 for result in results:
                     boxes = result.boxes
                     for box in boxes:
                         cls_index = int(box.cls[0].item())
                         class_name = CLASS_NAMES.get(cls_index, f"Unknown Class ({cls_index})")
                         confidence = float(box.conf[0].item())  # Convert to Python float
-                        
+
                         processed_box = {
                             'xyxy': [float(x) for x in box.xyxy[0].cpu().numpy()],  # Convert to Python float
                             'conf': confidence,
@@ -304,13 +304,13 @@ async def predict(image: UploadFile = File(...)):
                             'xywh': [float(x) for x in box.xywh[0].cpu().numpy()]  # Convert to Python float
                         }
                         processed_results.append(processed_box)
-                
+
                 if processed_results:
                     return JSONResponse(content={"results": processed_results})
             else:
                 # Legacy mode processing
                 result = process_legacy_mode(results)
-                
+
                 if result['image_id'] != 'NA':
                     # Draw bbox only in non-REACT mode
                     annotated_image = draw_bbox(
@@ -320,28 +320,28 @@ async def predict(image: UploadFile = File(...)):
                         result['obstacle_id'],
                         result['conf']
                     )
-                
+
                 return JSONResponse(content=result)
-            
+
             return JSONResponse(
                 content={
                     "error": "No objects detected",
                     "details": "The model did not identify any objects in the image"
-                }, 
+                },
                 status_code=404
             )
-        
+
         except Exception as inference_error:
             logger.error(f"Inference failed: {inference_error}")
             raise
-    
+
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
         return JSONResponse(
             content={
                 "error": "Prediction process failed",
                 "details": str(e)
-            }, 
+            },
             status_code=500
         )
 
@@ -437,7 +437,7 @@ def stitch_image_own():
 
     imgPaths = glob.glob(os.path.join(imgFolder+"/annotated_image_*.jpg"))
     imgTimestamps = [imgPath.split("_")[-1][:-4] for imgPath in imgPaths]
-    
+
     sortedByTimeStampImages = sorted(zip(imgPaths, imgTimestamps), key=lambda x: x[1])
 
     images = [Image.open(x[0]) for x in sortedByTimeStampImages]

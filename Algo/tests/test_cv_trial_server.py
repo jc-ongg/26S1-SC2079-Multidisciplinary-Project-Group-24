@@ -81,6 +81,11 @@ class CVTrialTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_names({0: "person"})
 
+    def test_output_directory_removed_after_startup_is_recreated(self):
+        Path(self.folder.name).rmdir()  # empty test-owned directory only
+        self.assertEqual(self.post_image().status_code, 200)
+        self.assertEqual(len(list(Path(self.folder.name).glob("*.jpg"))), 2)
+
     def test_inference_errors_are_reported(self):
         def fail(*args, **kwargs):
             raise RuntimeError("test inference failure")

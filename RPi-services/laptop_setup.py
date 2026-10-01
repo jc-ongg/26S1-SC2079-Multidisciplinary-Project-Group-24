@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -81,33 +82,51 @@ def fetch_model() -> bool:
         print("  already present, checksum OK")
         return True
 
+    if MODEL.exists():
+        print(f"  Existing model has a different checksum; leaving it untouched: {MODEL}")
+        print("  Preserve/rename it yourself before requesting a new download.")
+        return False
+
+    # Never install a partial or unchecked model into the active model path.
+    with tempfile.TemporaryDirectory(prefix="mdp-model-", dir=IMAGE_API) as folder:
+        candidate = Path(folder) / MODEL.name
+        if not download_model(candidate):
+            return False
+        if sha256(candidate) != MODEL_SHA256:
+            print("  !! checksum mismatch; downloaded candidate not installed.")
+            return False
+        # Atomic, no-overwrite installation on this same filesystem. A model
+        # someone placed concurrently makes this fail rather than replacing it.
+        os.link(candidate, MODEL)
+    print("  downloaded, checksum OK")
+    return True
+
+
+def download_model(candidate: Path) -> bool:
+
     # The repo is private, so an anonymous download of the release asset fails.
     gh = shutil.which("gh")
     if gh:
         try:
             run([gh, "release", "download", MODEL_TAG, "--repo", REPO_SLUG,
-                 "--pattern", MODEL.name, "--dir", IMAGE_API, "--clobber"])
+                 "--pattern", MODEL.name, "--dir", candidate.parent])
         except subprocess.CalledProcessError:
             print("  gh download failed (logged in? `gh auth login`)")
     elif os.environ.get("GITHUB_TOKEN"):
         api = f"https://api.github.com/repos/{REPO_SLUG}/releases/tags/{MODEL_TAG}"
         hdr = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
         import json
-        rel = json.load(urllib.request.urlopen(urllib.request.Request(api, headers=hdr)))
+        rel = json.load(urllib.request.urlopen(urllib.request.Request(api, headers=hdr), timeout=30))
         asset = next(a for a in rel["assets"] if a["name"] == MODEL.name)
         req = urllib.request.Request(asset["url"], headers={**hdr, "Accept": "application/octet-stream"})
         print(f"  downloading {asset['size'] / 1e6:.0f} MB ...", flush=True)
-        with urllib.request.urlopen(req) as r, open(MODEL, "wb") as f:
+        with urllib.request.urlopen(req, timeout=120) as r, open(candidate, "wb") as f:
             shutil.copyfileobj(r, f)
 
-    if not MODEL.exists():
+    if not candidate.exists():
         print(f"  !! model missing. Download {MODEL.name} from\n     {MODEL_PAGE}\n"
               f"     into {IMAGE_API} and run this again.")
         return False
-    if sha256(MODEL) != MODEL_SHA256:
-        print("  !! checksum mismatch -- the file is corrupt or a different model.")
-        return False
-    print("  downloaded, checksum OK")
     return True
 
 

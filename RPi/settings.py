@@ -1,14 +1,16 @@
-# STM32 BOARD SERIAL CONNECTION
-SERIAL_PORT = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A6C068380-if00"  # stm32 (CH34x adapter)
+import os
+
+# Override per session; do not edit a teammate's address into source control.
+SERIAL_PORT = os.environ.get("STM_SERIAL_PORT", "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5A6C068380-if00")
 BAUD_RATE = 115200
 
 # API DETAILS
-API_IP = "192.168.50.181"  # laptop running the Algo server
-API_PORT = 8000
+API_IP = os.environ.get("LAPTOP_IP", "192.168.50.181")
+API_PORT = int(os.environ.get("ALGO_PORT", "8000"))
 
 #IMAGE API
-API_IP_IMAGE="192.168.50.181"
-API_PORT_IMAGE=8001  # image-api (best_v11i_m.onnx); algo keeps 8000
+API_IP_IMAGE = os.environ.get("CV_IP", API_IP)
+API_PORT_IMAGE = int(os.environ.get("IMAGE_API_PORT", "8001"))
 
 # ROBOT SETTINGS
 OUTDOOR_BIG_TURN = False

@@ -3,14 +3,12 @@ from datetime import datetime
 from algo.algo import PathFinder 
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from model import *
 from helper import command_generator
 import os
 from car_animation import run_turtle_sim
 import queue
 import threading
 import turtle
-from ultralytics import YOLO
 from PIL import Image, ImageOps
 import io
 from threading import Lock
@@ -33,6 +31,7 @@ def get_yolo_model():
     """Load best.pt on first use, or return None if it is not present."""
     global yolo_model
     if yolo_model is None and os.path.exists(MODEL_PATH):
+        from ultralytics import YOLO
         yolo_model = YOLO(MODEL_PATH)
     return yolo_model
 

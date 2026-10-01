@@ -91,8 +91,8 @@ def main():
     except Exception as e:
         report(False, "/stitch returns a JPEG", f"error: {e}")
 
-    print("\n" + ("ALL MATCH -- this laptop reproduces the Task 1 setup."
-                  if not fails else f"{fails} MISMATCH(ES) -- not the same setup as the 3/3 run."))
+    print("\n" + ("ALL MATCH -- recorded software responses match; physical calibration is not verified."
+                  if not fails else f"{fails} MISMATCH(ES) -- responses differ from the original ONNX baseline."))
     sys.exit(1 if fails else 0)
 
 

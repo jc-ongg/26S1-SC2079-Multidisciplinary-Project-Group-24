@@ -24,7 +24,7 @@ IMAGE_API_TIMEOUT = (3, 10)
 
 class PiAction:
     """
-    Class that represents an action that the RPi needs to take.    
+    Class that represents an action that the RPi needs to take.
     """
 
     def __init__(self, cat, value):
@@ -282,7 +282,7 @@ class RaspberryPi:
 
     def android_sender(self) -> None:
         """
-        [Child process] Responsible for retrieving messages from android_queue and sending them over the Android link. 
+        [Child process] Responsible for retrieving messages from android_queue and sending them over the Android link.
         """
         while True:
             # Retrieve from queue
@@ -307,7 +307,7 @@ class RaspberryPi:
 
     def command_follower(self) -> None:
         """
-        [Child Process] 
+        [Child Process]
         """
         while True:
             # Retrieve next movement command
@@ -410,7 +410,7 @@ class RaspberryPi:
 
     def rpi_action(self):
         """
-        [Child Process] 
+        [Child Process]
         """
         while True:
             action: PiAction = self.rpi_action_queue.get()
@@ -441,10 +441,10 @@ class RaspberryPi:
         self.logger.info(f"Capturing image for obstacle id: {obstacle_id}")
         self.android_queue.put(AndroidMessage(
             "info", f"Capturing image for obstacle id: {obstacle_id}"))
-        
+
         url = f"http://{API_IP_IMAGE}:{API_PORT_IMAGE}/predict"
         filename = f"{int(time.time())}_{obstacle_id}.jpg"
-        
+
         capture_command = ['rpicam-still', '-e', 'jpg', '-n', '-t', '500', '-o', filename]
         results = {'image_id': 'NA', 'obstacle_id': 'NA'}
         for attempt in range(1, CAPTURE_ATTEMPTS + 1):
@@ -459,8 +459,13 @@ class RaspberryPi:
                     response = requests.post(url, files={
                         'image': (filename, image_file, 'image/jpeg')
                     }, timeout=IMAGE_API_TIMEOUT)
-                response.raise_for_status()
-                candidate = response.json()
+                # The original ONNX API uses 404 for a valid frame with no
+                # detections. Treat it like NA, allowing the normal retries.
+                if response.status_code == 404:
+                    candidate = {'image_id': 'NA', 'obstacle_id': 'NA'}
+                else:
+                    response.raise_for_status()
+                    candidate = response.json()
                 if not isinstance(candidate, dict) or not candidate.get('image_id'):
                     raise ValueError('Image API returned no image_id')
                 results = candidate
@@ -477,12 +482,12 @@ class RaspberryPi:
                     'error', f'Image capture/recognition failed for obstacle {obstacle_id}.'))
                 results = {'image_id': 'NA', 'obstacle_id': 'NA'}
                 break
-        
+
         self.logger.info(f"results: {results}")
         self.logger.info(f"self.obstacles: {self.obstacles}")
         self.logger.info(
             f"Image recognition results: {results} ({SYMBOL_MAP.get(results['image_id'])})")
-        
+
         # Handle results - store just the obstacle_id since self.obstacles is empty
         if results['image_id'] == 'NA':
             if obstacle_id not in self.failed_obstacles:
@@ -497,7 +502,7 @@ class RaspberryPi:
                 self.success_obstacles.append(obstacle_id)
             self.logger.info(
                 f"self.success_obstacles: {self.success_obstacles}")
-        
+
         # Tablet frame must be TARGET,<obstacle number>,<numeric image id>.
         # The app int-parses both fields and silently drops the frame if either
         # fails, and the grader reads the id off the obstacle on the tablet --
