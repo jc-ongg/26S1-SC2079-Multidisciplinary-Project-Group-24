@@ -1,5 +1,9 @@
 # Repository consolidation — 2026-10-01
 
+Updated repository status on **2026-10-02**: see
+[current status and cleanup](REPO_STATUS_2026-10-02.md). The Pi is no longer
+accessible; runtime/deployment observations below describe the older session.
+
 ## Where to work
 
 Use **main** for integrated Android, Algo, laptop CV and recovered core Pi code.
@@ -66,7 +70,9 @@ to decide which source is newer.
 
 No robot program was started, stopped, or restarted during consolidation.
 Task 1 and both laptop servers were already running when checked.
-No follow-up repository changes have been deployed over the live Pi files.
+The later optional profile guard was narrowly deployed to `task1_main.py`, with
+backup `/home/nat/mdp-backups/calibration-trial-20261001-DLA9Sp/task1_main.py`.
+No other later repository-only deployment is claimed. Current Pi state is unknown.
 
 Repository-only follow-ups needing a reviewed Pi deployment after you stop Task 1:
 
@@ -106,5 +112,6 @@ relying on automatic retries as a calibration measurement. Stop/restart Task 1
 yourself between controlled tests, and inspect the command log.
 
 The 10 cm grid conversion is approved, but the retained turns are a baseline,
-not newly validated calibration. The rejected padded-turn experiment stays
-reverted. See [calibration](../Algo/CALIBRATION.md).
+not newly validated calibration. The rejected speed25 profile remains preserved
+as an opt-in experiment; the newer speed50 forward/reverse overlays are also
+provisional. Neither changes source defaults. See [calibration](../Algo/CALIBRATION.md).

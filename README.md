@@ -18,6 +18,9 @@ project, including all four components.
 The physical Pi remains the source of truth for deployed code. The repository
 contains its recovered core source plus reviewed follow-up fixes. **A Git push
 does not update the Pi. Do not bulk-copy this folder over it.**
+The user no longer has access to the physical Pi as of **2026-10-02**. Its folder
+here is a preserved source snapshot, not a verified live mirror. See
+[latest repository status](docs/REPO_STATUS_2026-10-02.md).
 
 ## Start on this Windows laptop
 
@@ -61,6 +64,12 @@ Use `--manual` only for arrow-button testing; it cannot run a map.
 - Explicit temporary CV fallback, output-folder recovery and safe laptop launcher.
 - Straight scaling **10 cm per grid cell**, with original turn constants unchanged.
 
+Later work adds opt-in speed50 forward/reverse calibration trials and a guarded
+Pi launcher. Defaults still use original turns. To select both new turn trials,
+add `--forward-calibration speed50-v2 --reverse-calibration speed50-v2` to the
+laptop launch command. The base profile remains `original`/speed50; do not pass
+`--calibrated` to Task 1 for these overlays. Tests do not prove physical accuracy.
+
 [Calibration status](Algo/CALIBRATION.md) distinguishes approved settings from
 rejected experiments. Software tests do not prove arena accuracy.
 
@@ -77,3 +86,6 @@ may send motor commands on import: do not run blanket test discovery there.
 
 See [repository and deployment guide](docs/REPOSITORY_GUIDE.md) for branch
 roles, backup provenance, deployment boundaries and remaining limitations.
+The detailed [conversation handover](docs/CONVERSATION_HANDOVER_2026-10-01.md)
+preserves historical troubleshooting; use the latest status page for current
+access and unresolved issues.
