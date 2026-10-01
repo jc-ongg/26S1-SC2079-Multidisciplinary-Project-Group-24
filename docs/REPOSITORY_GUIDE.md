@@ -14,6 +14,17 @@ checkout. A branch switch may remove source, virtualenv files or image folders.
 | rpi/task1-services-and-fixes | Teammate's laptop services and reconstructed Pi source, merged |
 | codex/repository-consolidation | Integration/recovery branch, retained |
 
+The retained local branches and GitHub branches now point to the same integrated
+commit as main. Every branch is a snapshot of the whole repository, so seeing
+Android, Algo, RPi and STM32 files on each branch is normal.
+
+The former branch positions are preserved as annotated archive tags:
+
+- `archive/2026-10-01/android-before-consolidation`
+- `archive/2026-10-01/rpi-stm-protocol-and-a5-before-consolidation`
+- `archive/2026-10-01/rpi-task1-services-and-fixes-before-consolidation`
+
+Branches were advanced through their existing history; no force-push was used.
 Old branches and the two existing GitHub Desktop stashes were **not deleted**.
 Useful stashed Android Save/Use and temporary CV source were recovered.
 Do not pop either whole stash: they also contain thousands of runtime/generated
@@ -23,6 +34,12 @@ Assessment PDFs and generated artifacts left in those stashes remain recoverable
 The root .gitignore excludes virtual environments, generated captures/logs,
 build output and machine-local IDE settings. These were not erased from disk.
 The existing tracked Algo/best.pt remains in Git; new weights are ignored.
+
+On this laptop, repository-local `core.excludesFile` also points to the ignored
+`.gitignore-local` file. These rules remain active when inspecting an old tag
+whose committed .gitignore lacks them. This prevents the 19,283 CV-environment
+files and generated output from reappearing as pending source changes. They
+remain on disk. Other laptops use the committed rules on the current branches.
 
 ## Pi source of truth and backup
 
