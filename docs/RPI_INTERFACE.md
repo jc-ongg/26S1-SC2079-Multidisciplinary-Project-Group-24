@@ -1,5 +1,9 @@
 # RPi Interface — connecting and sending commands
 
+**Historical reference:** use [the current startup guide](../README.md) for
+Task 1. Never run these hardware examples while another controller owns the
+serial port. Recorded measurements below are not current calibration claims.
+
 Everything needed to drive the robot from the Pi. All of it verified on
 hardware 2026-09-17/18; where a thing is assumed rather than measured it says
 so.
@@ -10,8 +14,8 @@ so.
 
 | | |
 |---|---|
-| Pi | `192.168.50.5`, user `nat`, password `123456` |
-| WiFi | `MDP-group-24` / `123455` |
+| Pi | `192.168.50.5`, user `nat`; obtain credentials privately |
+| WiFi | `MDP-group-24`; obtain the password privately |
 | Laptop (algo + image-api) | `192.168.50.147` |
 
 ```bash

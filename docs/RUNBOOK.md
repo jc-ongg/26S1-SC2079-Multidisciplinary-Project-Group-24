@@ -1,4 +1,8 @@
-i# MDP Group 24 — Run Book
+# Historical MDP Group 24 run book
+
+**Superseded:** use the [current startup guide](../README.md). Addresses,
+ports, entry points and process-control examples below are historical, not
+instructions to deploy over the current Pi or restart a running robot.
 
 Everything needed to bring the system up from cold. Last verified working: 2026-09-11.
 
@@ -6,7 +10,7 @@ Everything needed to bring the system up from cold. Last verified working: 2026-
 
 | Thing | Address | Notes |
 |---|---|---|
-| Pi (hotspot `MDP-group-24`, pw `123455`) | `192.168.50.5` | user `nat`, pw `123456` |
+| Pi (hotspot `MDP-group-24`) | `192.168.50.5` | user `nat`; obtain credentials privately |
 | Mac on that hotspot | `192.168.50.147` | DHCP — **re-check each session** |
 | Camera stream (Pi) | `:5000` | `/health`, `/video_feed` |
 | Image API (Mac) | `:8000` | `/health`, `/predict` |
