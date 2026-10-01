@@ -1,10 +1,11 @@
 # SC2079 MDP — Group 24
 
-**Use `main` as the shared integration branch.** Older branches and both local
-GitHub Desktop stashes were kept for recovery; no history was force-pushed.
-The retained branches share the integrated version; their old snapshots are
-available through `archive/2026-10-01/*` tags. Each branch contains the whole
-project, including all four components.
+**Use `main` as the shared integration branch.** It contains all four components.
+The four redundant branches were removed locally and on GitHub on 2026-10-02
+after verifying all their commits were included in main. Shared commit history
+was not rewritten. Their final shared tip is preserved locally and on GitHub in
+`archive/2026-10-02/merged-branches-before-removal`; older component snapshots
+remain available through `archive/2026-10-01/*` tags.
 The two old active stash entries were later cleared with approval; their full
 snapshots remain in local `archive/2026-10-02/stash-*` recovery tags. Useful
 source and reference documents are committed. See [stash audit](docs/STASH_AUDIT_2026-10-02.md).

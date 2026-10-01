@@ -11,15 +11,17 @@ stash entries were removed; complete snapshots remain in their local recovery
 tags. No files on disk were deleted.
 
 Use `main` for the integrated Android, Algo, laptop CV, RPi snapshot and STM32
-sources. Existing component branches are compatibility/recovery names pointing
-at the same integrated version, not different deployable projects. Future work
+sources. At the user's subsequent request, the four redundant component/integration
+branches were removed locally and on GitHub after all five tips were verified
+equal to `66f7cd39d3564c143160d37dfd70e753d50297d0`. Only `main` remains. Future work
 should use a focused `codex/<feature>` branch from main and merge back after tests.
 
-This cleanup commits the existing turn-profile work, guarded Pi launcher and
-documentation in separate logical commits. Retained branches are fast-forwarded
-to the new main, with normal pushes only. It does not squash shared history,
-force-push, delete branches, erase the saved stash contents, or remove generated
-files/environments from disk. The old active stash entries were cleared only
+The initial cleanup committed the existing turn-profile work, guarded Pi launcher
+and documentation in separate logical commits and fast-forwarded all branches.
+The later branch cleanup removed only fully integrated branch names, using an
+atomic remote update with expected-tip checks and non-forced local deletion.
+No shared commit history was rewritten, stash snapshots erased, or generated
+files/environments removed from disk. The old active stash entries were cleared only
 after named recovery tags and useful-source reconciliation were verified.
 
 Recovery refs:
@@ -27,6 +29,8 @@ Recovery refs:
 - Previous integration head: `62e253dd1c145628e580f56cace93251a954720d`.
 - Checkpoint tag: `archive/2026-10-02/before-repository-tidy`.
 - Older component tips: `archive/2026-10-01/*` annotated tags.
+- Final shared tip before branch removal: GitHub and local annotated tag
+  `archive/2026-10-02/merged-branches-before-removal` (commit `66f7cd39`).
 - Both old stash contents remain in local `archive/2026-10-02/stash-*` tags;
   their active stash entries were removed with approval. Do not restore whole
   snapshots containing old environments and thousands of generated files.

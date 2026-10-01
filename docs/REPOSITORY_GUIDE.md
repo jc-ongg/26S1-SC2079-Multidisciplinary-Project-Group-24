@@ -15,16 +15,18 @@ Create narrowly scoped feature branches from main; review diffs and merge back.
 Do not switch GitHub Desktop branches while services depend on files in the
 checkout. A branch switch may remove source, virtualenv files or image folders.
 
-| Preserved branch | Role after consolidation |
+| Former branch | Integrated history |
 | --- | --- |
 | android | Historical Android work, already an ancestor of main |
 | rpi/stm-protocol-and-a5 | Protocol/A5 history, merged without rewriting it |
 | rpi/task1-services-and-fixes | Teammate's laptop services and reconstructed Pi source, merged |
-| codex/repository-consolidation | Integration/recovery branch, retained |
+| codex/repository-consolidation | Integration/recovery work, included in main |
 
-The retained local branches and GitHub branches now point to the same integrated
-commit as main. Every branch is a snapshot of the whole repository, so seeing
-Android, Algo, RPi and STM32 files on each branch is normal.
+All four former local and GitHub branches were removed on 2026-10-02 at the user's
+request. Each was verified equal to main at commit `66f7cd39`, so no further merge
+was needed and no unique commits were discarded. Only `main` remains. The final
+shared tip is preserved locally and on GitHub in annotated tag
+`archive/2026-10-02/merged-branches-before-removal`.
 
 The former branch positions are preserved as annotated archive tags:
 
@@ -32,12 +34,13 @@ The former branch positions are preserved as annotated archive tags:
 - `archive/2026-10-01/rpi-stm-protocol-and-a5-before-consolidation`
 - `archive/2026-10-01/rpi-task1-services-and-fixes-before-consolidation`
 
-Branches were advanced through their existing history; no force-push was used.
-Old branches and the two existing GitHub Desktop stashes were **not deleted**.
-Useful stashed Android Save/Use and temporary CV source were recovered.
-Do not pop either whole stash: they also contain thousands of runtime/generated
-files and old environments. Restore specific files only after inspecting them.
-Assessment PDFs and generated artifacts left in those stashes remain recoverable.
+Branches were initially advanced through their existing history without rewriting
+commits, then removed after verification and archival. The old active stash entries
+were also cleared after their full contents were preserved in local recovery tags.
+Useful Android Save/Use and temporary CV source were integrated, and assessment
+references were recovered into `docs/`. Restore specific files only after inspecting
+the archive tags; whole stash snapshots contain thousands of generated files and
+old environments. See the stash audit for the local-only recovery refs.
 
 The root .gitignore excludes virtual environments, generated captures/logs,
 build output and machine-local IDE settings. These were not erased from disk.
