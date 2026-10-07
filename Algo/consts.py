@@ -17,8 +17,8 @@ BACKWARD_RIGHT_LONGITUDINAL_OFFSET, BACKWARD_RIGHT_LATERAL_OFFSET = 4, 3
 FORWARD_LEFT, FORWARD_RIGHT = (5, 7), (5, 3)
 REVERSE_LEFT, REVERSE_RIGHT = (1, 5), (6, 8)
 
-# User requested less obstacle clearance; keep straight and edge rules intact.
-TURN_CLEARANCE_CM = 30
+# User's current trial: restore 40 cm turn clearance; keep straight/edge rules.
+TURN_CLEARANCE_CM = 40
 STRAIGHT_AXIS_CLEARANCE_CM = 30
 STRAIGHT_MANHATTAN_CLEARANCE_CM = 40
 

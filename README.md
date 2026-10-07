@@ -1,9 +1,10 @@
 # SC2079 MDP - Group 24
 
-One active Task 1 setup: **speed 50, 10 cm planner/tablet grid, 30 cm turn clearance**.
+One active Task 1 setup: **speed 50, 10 cm planner/tablet grid, 40 cm turn clearance**.
 Use `main` for shared work. Older experiments are archived and backed up.
 
-[Current setup, clearance, tests and backups](docs/TASK1_ROLLBACK_2026-10-07.md)
+[Current clearance trial](docs/TASK1_CLEARANCE40_2026-10-07.md)
+[Planner rollback and backups](docs/TASK1_ROLLBACK_2026-10-07.md)
 [Assessment checklist](docs/TASK1_RUN_GUIDE_2026-10-07.md)
 [Current photo retries and finish behavior](docs/TASK1_PHOTO_STOP_2026-10-07.md)
 
@@ -28,10 +29,10 @@ Use the laptop's actual hotspot IP. Connect Android, enter/resend the map,
 check **8/8** for the tested layout, wait for **READY**, then **Start**.
 No tablet reflash is needed for the rollback. Android stays on 10 cm coordinates.
 
-Robot-centre arena margins stay at cells **1-18**. Only the turn-clearance
-threshold was reduced from 40 cm to 30 cm Manhattan distance. Straight checks
-are preserved. Route generation includes all eight targets on the tested map;
-physical clearance still requires a trial. The tablet icon advances to planned
+Robot-centre arena margins stay at cells **1-18**. Turn start/end positions
+require at least 40 cm Manhattan distance from obstacle centres. Straight checks
+are preserved. The earlier crowded map returns 7/8 at this clearance; resend
+the current map and check coverage before Start. The tablet icon advances to planned
 poses after matching motor completion; it is not continuous measured odometry.
 
 Images: `output/cv-trial/`; open `http://127.0.0.1:8001/stitch` for the current run.

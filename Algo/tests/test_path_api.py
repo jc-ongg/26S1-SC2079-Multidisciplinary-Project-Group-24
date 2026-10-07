@@ -67,7 +67,7 @@ class PathApiTests(unittest.TestCase):
                                         'movement_profile': consts.MOVEMENT_PROFILE,
                                         'recommended_motor_speed': consts.RECOMMENDED_MOTOR_SPEED,
                                         'grid_cell_cm': 10, 'input_cell_cm': 10,
-                                        'arena_cells': 20, 'turn_clearance_cm': 30,
+                                        'arena_cells': 20, 'turn_clearance_cm': 40,
                                         'forward_calibration': consts.FORWARD_CALIBRATION,
                                         'reverse_calibration': consts.REVERSE_CALIBRATION})
 

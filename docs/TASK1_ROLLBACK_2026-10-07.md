@@ -1,4 +1,8 @@
-# Current Task 1: restored 10 cm planner and reduced turn clearance
+# Task 1 rollback record: restored 10 cm planner and reduced turn clearance
+
+**Later update:** the active turn clearance is back to 40 cm at Jacob's request.
+See [current clearance trial](TASK1_CLEARANCE40_2026-10-07.md). The 30 cm results
+below describe the earlier rollback, not the currently loaded configuration.
 
 Jacob requested switching back from the 5 cm trial and reducing obstacle
 clearance while keeping arena-edge margins. The active configuration is now

@@ -2,7 +2,7 @@
 
 Run **task1_main.py**, importing task1_controller.py. The matching laptop profile
 is **restored-speed50-grid10**: speed50, 10 cm planner/tablet map, arena20,
-turn_clearance_cm30. The launcher checks these before opening hardware.
+turn_clearance_cm40. The launcher checks these before opening hardware.
 
 ```bash
 cd /home/nat/SC2079-MDP/rpi

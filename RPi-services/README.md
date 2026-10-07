@@ -7,7 +7,7 @@ From the Windows repository root:
 ```
 
 One active movement setup: restored-speed50-grid10, speed50, 10 cm map/planner,
-30 cm Manhattan turn clearance. No calibration/profile switches. --check starts
+40 cm Manhattan turn clearance. No calibration/profile switches. --check starts
 nothing. The launcher refuses occupied ports, logs under RPi-services/logs/,
 and Ctrl-C stops its children. It does not start the Pi.
 

@@ -1,4 +1,4 @@
-"""Restored movement configuration and the user's reduced turn-clearance trial."""
+"""Restored movement configuration and the current 40 cm turn-clearance trial."""
 import contextlib
 import io
 import json
@@ -36,11 +36,13 @@ class RestoredGridTests(unittest.TestCase):
         self.assertEqual(command_converter('FW03'), 'center,0,forward,30')
         self.assertEqual(command_converter('BW03'), 'center,0,reverse,30')
 
-    def test_only_turn_clearance_reduced_and_edges_preserved(self):
+    def test_turn_clearance_restored_and_straight_edges_preserved(self):
         grid = Grid(20, 20)
         grid.add_obstacle(Obstacle(10, 10, 0, 1))
-        self.assertTrue(grid.reachable(10, 13, turn=True))
-        self.assertTrue(grid.reachable(10, 13, preTurn=True))
+        self.assertFalse(grid.reachable(10, 13, turn=True))
+        self.assertFalse(grid.reachable(10, 13, preTurn=True))
+        self.assertTrue(grid.reachable(10, 14, turn=True))
+        self.assertTrue(grid.reachable(10, 14, preTurn=True))
         self.assertFalse(grid.reachable(10, 12, turn=True))
         self.assertFalse(grid.reachable(12, 11))
         self.assertTrue(grid.reachable(13, 10))
@@ -49,7 +51,7 @@ class RestoredGridTests(unittest.TestCase):
         for value in (0, 19):
             self.assertFalse(grid.is_valid_coord(value, 1))
 
-    def test_actual_eight_target_map_covers_all_and_uses_valid_moves(self):
+    def test_old_eight_target_map_returns_valid_subset_at_40cm(self):
         payload = ('STATUS,OBSTACLE_LIST,false,1;1;NORTH,false,'
                    '1;0;19;SOUTH | 2;10;19;SOUTH | 3;5;14;SOUTH | '
                    '4;9;4;WEST | 5;19;4;WEST | 6;10;9;WEST | '
@@ -59,7 +61,8 @@ class RestoredGridTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json['data']
         ids = {int(c[4:].split('_')[0]) for c in data['stm_commands'] if c.startswith('SNAP')}
-        self.assertEqual(ids, set(range(1, 9)))
+        # Obstacle 7's available view poses cannot be reached with 40 cm turns.
+        self.assertEqual(ids, set(range(1, 9)) - {7})
         self.assertEqual(data['grid_cell_cm'], 10)
         self.assertEqual(len(data['command_poses']), len(data['stm_commands']))
         planner = PathFinder(20, 20, 1, 1, 0)
