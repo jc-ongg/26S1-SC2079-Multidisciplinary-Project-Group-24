@@ -195,6 +195,11 @@ class ControlFragment :
             parentFragment as? HomeFragment
                 ?: return
 
+        if (BluetoothSession.isConnected) {
+            BluetoothSession.sendManual(bluetoothCommand)
+            return
+        }
+
 
         val success =
             action(
@@ -208,15 +213,6 @@ class ControlFragment :
         }
 
 
-        // Local movement still works without Bluetooth.
-        // Send the command when a connection exists.
-        if (
-            BluetoothSession.isConnected
-        ) {
-
-            BluetoothSession.send(
-                "//$bluetoothCommand//"
-            )
-        }
+        // Offline map controls remain available for the simulator/checklist.
     }
 }

@@ -13,10 +13,13 @@ from communication.stm32 import STMLink
 from consts import SYMBOL_MAP
 from logger import prepare_logger
 from settings import API_IP, API_PORT, API_PORT_IMAGE, API_IP_IMAGE
+from path_plan import parse_plan
 
 # A missing STM completion pauses dispatch; it must never permit another move.
 # Camera retries run synchronously and do not use this motor ACK deadline.
-ACK_TIMEOUT = 15
+# A long compressed straight can take more than 15 s at the current speed.
+# This is a completion watchdog, not an inter-command animation delay.
+ACK_TIMEOUT = 60
 CAPTURE_ATTEMPTS = 7
 CAPTURE_TIMEOUT = 10
 IMAGE_API_TIMEOUT = (3, 10)
@@ -67,6 +70,10 @@ class RaspberryPi:
         self.motion_fault = self.manager.Event()
         self.stm_ack_guard = self.manager.Lock()
         self.stm_pending_id = self.manager.Value('i', 0)
+        self.stm_pending_location = self.manager.dict()
+        self.stm_pending_manual = self.manager.dict()
+        self.plan_guard = self.manager.Lock()
+        self.plan_state = self.manager.dict(id='', revision=0, status='unsent')
 
         self.android_queue = self.manager.Queue()  # Messages to send to Android
         # Messages that need to be processed by RPi
@@ -123,12 +130,27 @@ class RaspberryPi:
             self.reconnect_android()
 
         except KeyboardInterrupt:
+            self.logger.info('Task 1 interrupted.')
+        finally:
             self.stop()
 
     def stop(self):
         """Stops all processes on the RPi and disconnects gracefully with Android and STM32"""
+        self.unpause.clear()
+        workers = [self.proc_recv_android, self.proc_recv_stm32,
+                   self.proc_android_sender, self.proc_command_follower, self.proc_rpi_action]
+        for worker in workers:
+            if worker is not None and worker.is_alive():
+                worker.terminate()
+        for worker in workers:
+            if worker is not None and worker.pid is not None:
+                worker.join(timeout=2)
+                if worker.is_alive():
+                    worker.kill()
+                    worker.join(timeout=2)
         self.android_link.disconnect()
         self.stm_link.disconnect()
+        self.manager.shutdown()
         self.logger.info("Program exited!")
 
     def reconnect_android(self):
@@ -206,28 +228,38 @@ class RaspberryPi:
 
             ## Command: Set obstacles ##
             if message['cat'] == "obstacles":
-                self.rpi_action_queue.put(PiAction(**message))
-                self.logger.debug(
-                    f"Set obstacles PiAction added to queue: {message}")
+                value = dict(message['value'])
+                with self.plan_guard:
+                    if self.plan_state['status'] == 'running' or self.stm_pending_id.value:
+                        self.android_queue.put(AndroidMessage('plan', {
+                            'id': value.get('plan_id', ''), 'state': 'ERROR',
+                            'reason': 'Robot is moving; finish the current run first'}))
+                        continue
+                    self.unpause.clear()
+                    self.plan_state['revision'] += 1
+                    self.plan_state['id'] = value.get('plan_id', 'legacy')
+                    self.plan_state['status'] = 'planning'
+                    value['revision'] = self.plan_state['revision']
+                self.rpi_action_queue.put(PiAction('obstacles', value))
+
+            elif message['cat'] == 'invalidate':
+                with self.plan_guard:
+                    if self.plan_state['status'] != 'running':
+                        self.unpause.clear()
+                        self.plan_state['revision'] += 1
+                        self.plan_state['status'] = 'unsent'
 
             ## Command: Start Moving ##
             elif message['cat'] == "control":
                 if message['value'] == "start":
-                    # Check API
-                    # if not self.check_api():
-                    #     self.logger.error(
-                    #         "API is down! Start command aborted.")
-                    #     self.android_queue.put(AndroidMessage(
-                    #         'error', "API is down, start command aborted."))
-
-                    # Commencing path following
-                    # Do NOT gate on the queue being non-empty. BEGIN sends
-                    # obstacles + control:start back-to-back, and the queue is
-                    # filled by rpi_action in a SEPARATE process that usually
-                    # has not run yet here -- so the old check saw an empty
-                    # queue, skipped unpause.set(), and the robot never moved.
-                    # command_follower blocks on command_queue.get() anyway.
-                    self.unpause.set()
+                    with self.plan_guard:
+                        if (self.plan_state['status'] != 'ready' or
+                                message.get('plan_id') != self.plan_state['id']):
+                            self.android_queue.put(AndroidMessage('error',
+                                'Send the map and wait for its route before pressing Start.'))
+                            continue
+                        self.plan_state['status'] = 'running'
+                        self.unpause.set()
                     self.logger.info(
                         "Start command received, starting robot on path!")
                     self.android_queue.put(AndroidMessage(
@@ -236,9 +268,26 @@ class RaspberryPi:
                         AndroidMessage('status', 'running'))
 
             elif message['cat'] == "manual":
+                with self.plan_guard:
+                    if self.plan_state['status'] == 'running':
+                        self.android_queue.put(AndroidMessage('error', 'Manual controls are disabled during Task 1.'))
+                        continue
+                    self.plan_state['revision'] += 1
+                    self.plan_state['status'] = 'unsent'
+                    self.clear_queues()
                 command = message['value']
-                self.command_queue.put(command)
+                self.command_queue.put({'command': command, 'pose': None,
+                    'revision': self.plan_state['revision'], 'manual': True})
                 self.unpause.set()
+
+            elif message['cat'] == 'result':
+                # Stop further dispatch. An in-flight motor command may finish;
+                # this is not a firmware emergency stop or an automatic finish.
+                with self.plan_guard:
+                    self.unpause.clear()
+                    self.plan_state['revision'] += 1
+                    self.plan_state['status'] = 'unsent'
+                self.android_queue.put(AndroidMessage('status', 'Run stopped manually; incomplete'))
 
     def recv_stm(self) -> None:
         """
@@ -263,15 +312,15 @@ class RaspberryPi:
                         self.logger.warning(f"Ignoring unexpected STM ACK: {message}")
                         continue
                     self.stm_pending_id.value = 0
-                    try:
-                        cur_location = self.path_queue.get_nowait()
-                    except queue.Empty:
-                        cur_location = None
-                    if cur_location is not None:
-                        self.current_location.update(cur_location)
-                        self.android_queue.put(AndroidMessage('location', {
-                            key: cur_location[key] for key in ('x', 'y', 'd')
-                        }))
+                    cur_location = dict(self.stm_pending_location)
+                    self.stm_pending_location.clear()
+                    if cur_location:
+                        self._report_location(cur_location)
+                    manual_command = self.stm_pending_manual.pop('command', None)
+                    if manual_command:
+                        name = {'FW010': 'forward', 'BW010': 'backward',
+                                'FL090': 'left', 'FR090': 'right'}[manual_command]
+                        self.android_queue.put(AndroidMessage('status', f'Manual {name} complete'))
                     self.movement_lock.release()
                     self.logger.debug(f"STM command {pending} completed; movement lock released.")
             elif message.startswith("ERROR"):
@@ -305,10 +354,15 @@ class RaspberryPi:
         self.logger.error(message)
         self.android_queue.put(AndroidMessage('error', message))
 
+    def _report_location(self, pose):
+        self.current_location.update(pose)
+        self.android_queue.put(AndroidMessage('location', dict(pose)))
+
     def command_follower(self) -> None:
         """
         [Child Process]
         """
+        active_revision = None
         while True:
             # Retrieve next movement command
             command: str = self.command_queue.get()
@@ -317,6 +371,19 @@ class RaspberryPi:
             self.unpause.wait()
             if self.motion_fault.is_set():
                 return
+            pose = None
+            revision = None
+            manual = False
+            if isinstance(command, dict):
+                manual = command.get('manual', False)
+                pose = command['pose']
+                revision = command['revision']
+                if revision != self.plan_state['revision'] or (not manual and self.plan_state['status'] != 'running'):
+                    continue
+                command = command['command']
+                if not manual and active_revision != revision:
+                    self.failed_attempt = False
+                    active_revision = revision
             self.logger.debug("wait for movelock")
             # This wait is now only for the preceding MOTOR command, not CV.
             if not self.movement_lock.acquire(timeout=ACK_TIMEOUT):
@@ -325,6 +392,9 @@ class RaspberryPi:
             if self.motion_fault.is_set():
                 self.movement_lock.release()
                 return
+            if not self.unpause.is_set() or (revision is not None and revision != self.plan_state['revision']):
+                self.movement_lock.release()
+                continue
 
             # STM32 Commands - Send straight to STM32
             # Legacy FW010-style prefixes plus the Algo server's
@@ -341,6 +411,12 @@ class RaspberryPi:
                 try:
                     # Guard publication against a very fast ACK in recv_stm.
                     with self.stm_ack_guard:
+                        self.stm_pending_location.clear()
+                        if pose is not None:
+                            self.stm_pending_location.update(pose)
+                        self.stm_pending_manual.clear()
+                        if manual:
+                            self.stm_pending_manual['command'] = command
                         self.stm_pending_id.value = self.stm_link.send(command)
                 except Exception as exc:
                     self._pause_motion(f"Could not send STM command: {exc}")
@@ -349,6 +425,8 @@ class RaspberryPi:
 
             # Snap command
             elif command.startswith("SNAP"):
+                if pose is not None:
+                    self._report_location(pose)
                 # The Algo server tags snaps with a direction suffix, e.g.
                 # "SNAP1_L" / "SNAP2". Keep only the obstacle id.
                 obstacle_id = command.replace("SNAP", "").split("_")[0]
@@ -362,28 +440,23 @@ class RaspberryPi:
 
             # End of path
             elif command == "FIN":
+                if pose is not None:
+                    self._report_location(pose)
                 self.logger.info(
                     f"At FIN, self.failed_obstacles: {self.failed_obstacles}")
                 self.logger.info(
                     f"At FIN, self.current_location: {self.current_location}")
                 if len(self.failed_obstacles) != 0 and self.failed_attempt == False:
 
-                    # failed_obstacles holds obstacle-id STRINGS, but the algo
-                    # needs the obstacle dicts -- look them up. The old code
-                    # also re-added successful obstacles with d=8, which (a)
-                    # crashed on strings and (b) the current algo treats every
-                    # obstacle as a target to visit, so it would re-drive them.
+                    # Retain every physical obstacle for collision checking.
+                    # d=8 makes already-recognized obstacles non-targets in Algo.
+                    failed_ids = {str(oid) for oid in self.failed_obstacles}
                     new_obstacle_list = []
-                    for oid in list(self.failed_obstacles):
-                        ob = None
-                        try:
-                            ob = self.obstacles.get(int(oid))
-                        except (TypeError, ValueError):
-                            pass
-                        if ob is None:
-                            ob = self.obstacles.get(oid)
-                        if ob:
-                            new_obstacle_list.append(dict(ob))
+                    for obstacle in self.obstacles.values():
+                        ob = dict(obstacle)
+                        if str(ob['id']) not in failed_ids:
+                            ob['d'] = 8
+                        new_obstacle_list.append(ob)
                     if not new_obstacle_list:
                         self.logger.warning(
                             "No obstacle data for retry; finishing instead.")
@@ -393,12 +466,17 @@ class RaspberryPi:
                         and new_obstacle_list):
                     self.logger.info("Attempting to go to failed obstacles")
                     self.failed_attempt = True
-                    self.request_algo({'obstacles': new_obstacle_list, 'mode': '0'},
-                                      self.current_location['x'], self.current_location['y'], self.current_location['d'], retrying=True)
+                    prepared = self.request_algo({'obstacles': new_obstacle_list, 'mode': '0'},
+                                                self.current_location['x'], self.current_location['y'], self.current_location['d'], retrying=True)
                     self.movement_lock.release()
+                    if not prepared:
+                        self._pause_motion('Could not prepare the revisit route.')
+                        return
                     continue
 
                 self.unpause.clear()
+                with self.plan_guard:
+                    self.plan_state['status'] = 'finished'
                 self.movement_lock.release()
                 self.logger.info("Commands queue finished.")
                 self.android_queue.put(AndroidMessage(
@@ -418,6 +496,10 @@ class RaspberryPi:
                 f"PiAction retrieved from queue: {action.cat} {action.value}")
 
             if action.cat == "obstacles":
+                with self.plan_guard:
+                    if action.value['revision'] != self.plan_state['revision']:
+                        continue
+                    self.obstacles.clear()
                 for obs in action.value['obstacles']:
                     self.obstacles[obs['id']] = obs
                 # Android tells us where it placed the robot; without this the
@@ -456,7 +538,7 @@ class RaspberryPi:
                                capture_output=True, text=True)
                 with open(filename, 'rb') as image_file:
                     self.logger.debug("Requesting from image API")
-                    response = requests.post(url, files={
+                    response = requests.post(url, data={'run_id': self.plan_state['id']}, files={
                         'image': (filename, image_file, 'image/jpeg')
                     }, timeout=IMAGE_API_TIMEOUT)
                 # The original ONNX API uses 404 for a valid frame with no
@@ -520,6 +602,8 @@ class RaspberryPi:
         The received commands and path are then queued in the respective queues
         """
         self.logger.info("Requesting path from algo...")
+        revision = data.get('revision', self.plan_state['revision'])
+        plan_id = data.get('plan_id', self.plan_state['id'])
         self.android_queue.put(AndroidMessage(
             "info", "Requesting path from algo..."))
         self.logger.info(f"data: {data}")
@@ -532,7 +616,7 @@ class RaspberryPi:
                     1: "NORTH", 3: "EAST", 5: "SOUTH", 7: "WEST",
                     "N": "NORTH", "E": "EAST", "S": "SOUTH", "W": "WEST",
                     "NORTH": "NORTH", "EAST": "EAST",
-                    "SOUTH": "SOUTH", "WEST": "WEST"}
+                    "SOUTH": "SOUTH", "WEST": "WEST", 8: "SKIP"}
 
         obstacle_list = " | ".join(
             "{};{};{};{}".format(o["id"], o["x"], o["y"], dir_name[o["d"]])
@@ -545,42 +629,38 @@ class RaspberryPi:
 
         self.logger.debug(f"Algo payload: {payload}")
         url = f"http://{API_IP}:{API_PORT}/path"
-        response = requests.post(
-            url, data=payload,
-            headers={"Content-Type": "text/plain"}, timeout=60)
+        try:
+            response = requests.post(url, data=payload,
+                headers={"Content-Type": "text/plain"}, timeout=60)
+            if response.status_code != 200:
+                raise ValueError(f'Algo returned HTTP {response.status_code}')
+            plan = parse_plan(response.json())
+        except Exception as exc:
+            self.logger.error(f'Route preparation failed: {exc}')
+            with self.plan_guard:
+                if revision == self.plan_state['revision']:
+                    self.plan_state['status'] = 'error'
+                    self.android_queue.put(AndroidMessage('plan', {
+                        'id': plan_id, 'state': 'ERROR', 'reason': str(exc)}))
+            return False
 
-        # Error encountered at the server, return early
-        if response.status_code != 200:
-            self.android_queue.put(AndroidMessage(
-                "error", "Something went wrong when requesting path from Algo API."))
-            self.logger.error(
-                "Something went wrong when requesting path from Algo API.")
-            return
-
-        # Parse response. The Algo server nests everything under "data" and
-        # returns the STM-ready list as stm_commands ("center,0,forward,120"),
-        # while "commands" is the human-readable FW/FR form used by the sim.
-        result = response.json()
-        payload_data = result.get("data", result)
-        commands = payload_data.get("stm_commands") or payload_data.get("commands", [])
-        path = payload_data.get("path", [])
-        if result.get("error"):
-            self.logger.error(f"Algo API reported an error: {result['error']}")
-
-        # Log commands received
-        self.logger.debug(f"Commands received from API: {commands}")
-
-        # Put commands and paths into respective queues
-        self.clear_queues()
-        for c in commands:
-            self.command_queue.put(c)
-        for p in path[1:]:  # ignore first element as it is the starting position of the robot
-            self.path_queue.put(p)
-
-        self.android_queue.put(AndroidMessage(
-            "info", "Commands and path received Algo API. Robot is ready to move."))
-        self.logger.info(
-            "Commands and path received Algo API. Robot is ready to move.")
+        with self.plan_guard:
+            if revision != self.plan_state['revision']:
+                self.logger.info('Discarding route for an outdated map.')
+                return False
+            self.clear_queues()
+            if not retrying:
+                self.success_obstacles[:] = []
+                self.failed_obstacles[:] = []
+                self.current_location.clear()
+                self.current_location.update(x=robot_x, y=robot_y, d=robot_dir)
+            for command, pose in plan:
+                self.command_queue.put({'command': command, 'pose': pose, 'revision': revision})
+            if not retrying:
+                self.plan_state['status'] = 'ready'
+                self.android_queue.put(AndroidMessage('plan', {'id': plan_id, 'state': 'READY'}))
+        self.logger.info('Prepared route queued; waiting for Android Start.' if not retrying else 'Revisit route queued.')
+        return True
 
     def request_stitch(self):
         """Sends a stitch request to the image recognition API to stitch the different images together"""
@@ -588,7 +668,7 @@ class RaspberryPi:
         # server, whose /stitch is commented out. FAQ 16: no display, no score.
         url = f"http://{API_IP_IMAGE}:{API_PORT_IMAGE}/stitch"
         try:
-            response = requests.get(url, timeout=IMAGE_API_TIMEOUT)
+            response = requests.get(url, params={'run_id': self.plan_state['id']}, timeout=IMAGE_API_TIMEOUT)
         except requests.RequestException as exc:
             self.logger.error(f"Image stitching request failed: {exc}")
             self.android_queue.put(AndroidMessage('error', 'Image stitching request failed.'))
@@ -608,10 +688,12 @@ class RaspberryPi:
 
     def clear_queues(self):
         """Clear both command and path queues"""
-        while not self.command_queue.empty():
-            self.command_queue.get()
-        while not self.path_queue.empty():
-            self.path_queue.get()
+        for pending_queue in (self.command_queue, self.path_queue):
+            while True:
+                try:
+                    pending_queue.get_nowait()
+                except queue.Empty:
+                    break
 
     def check_api(self) -> bool:
         """Check whether image recognition and algorithm API server is up and running

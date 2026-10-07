@@ -61,7 +61,8 @@ def convert_input(request):
             "NORTH": 0,
             "EAST": 2,
             "SOUTH": 4,
-            "WEST": 6
+            "WEST": 6,
+            "SKIP": 8
         }
 
     andriod_input = request.get_data().decode()
@@ -188,13 +189,16 @@ def path_finding():
         else:
             i += 1
         path_results.append(optimal_path[i].get_dict())
+    from execution_plan import build_command_poses
+    command_poses = build_command_poses(commands, path_results, stm_commands)
     return jsonify({
         "data": {
             'distance': distance,
             'path': path_results,
             'commands': commands,
             # 'stm_commands': unadjusted_stm_commands
-            'stm_commands': stm_commands
+            'stm_commands': stm_commands,
+            'command_poses': command_poses
         },
         "error": None
         })

@@ -1926,9 +1926,9 @@ class ConfigurationFragment :
                 Toast.makeText(
                     requireContext(),
                     if (sent) {
-                        "Map sent"
+                        "Map sent. Preparing route before Task 1 Start."
                     } else {
-                        "Unable to send map. Check Bluetooth connection."
+                        "Unable to send map. Connect Bluetooth and place a robot and obstacles."
                     },
                     Toast.LENGTH_SHORT
                 ).show()

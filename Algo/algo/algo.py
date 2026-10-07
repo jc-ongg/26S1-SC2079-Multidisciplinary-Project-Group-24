@@ -184,8 +184,6 @@ class PathFinder:
                 order, travel_dist = solve_tsp_dynamic_programming(adj_matrix)
                 # ... (inside solve_mission after travel_dist calculation)
                 if travel_dist + static_penalty < best_overall_score:
-                    best_overall_score = travel_dist + static_penalty
-                    
                     # Start the path with the robot's initial state
                     current_path = [active_items[0]] 
                     
@@ -201,7 +199,12 @@ class PathFinder:
                         if (actual_current_state, target_node) not in self.route_cache:
                             self._run_astar(actual_current_state, target_node)
                             
-                        segment = self.route_cache[(actual_current_state, target_node)]
+                        segment = self.route_cache.get((actual_current_state, target_node))
+                        if segment is None:
+                            # A symmetric candidate cost can describe an edge
+                            # that A* cannot drive in this direction. Reject
+                            # this candidate before accepting its score/path.
+                            break
                         
                         # Add steps to the path (skip the first to avoid duplicates)
                         for step in segment[1:]:
@@ -214,7 +217,9 @@ class PathFinder:
                         # UPDATE the actual current state to be the end of this segment
                         actual_current_state = current_path[-1]
                     
-                    final_sequence = current_path
+                    else:
+                        best_overall_score = travel_dist + static_penalty
+                        final_sequence = current_path
 
                     """
                     order:

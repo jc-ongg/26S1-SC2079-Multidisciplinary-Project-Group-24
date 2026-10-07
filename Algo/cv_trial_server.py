@@ -79,6 +79,8 @@ def create_app(model, model_path, output_dir, confidence=0.30):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     model_lock = threading.Lock()
+    run_captures = {}
+    current_run = ['legacy']
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
@@ -100,6 +102,7 @@ def create_app(model, model_path, output_dir, confidence=0.30):
             return jsonify(error="Invalid image"), 400
 
         started = time.monotonic()
+        run_id = request.form.get('run_id', 'legacy')
         try:
             with model_lock:
                 result = model.predict(image, imgsz=640, conf=confidence, verbose=False)[0]
@@ -109,13 +112,19 @@ def create_app(model, model_path, output_dir, confidence=0.30):
             # Branch switches/cleanup may remove generated output while we run.
             output_dir.mkdir(parents=True, exist_ok=True)
             image.save(output_dir / f"{capture_id}_original.jpg", quality=95)
+            with model_lock:
+                current_run[0] = run_id
+                run_captures.setdefault(run_id, {})
             if target is None:
                 LOGGER.info("No target detected in %s", upload.filename)
                 return jsonify(image_id="NA", obstacle_id="NA", conf=0.0,
                                xyxy=None, bullseye=None)
 
             _, score, image_id, xyxy = target
-            annotate(image, target).save(output_dir / f"{capture_id}_annotated.jpg", quality=95)
+            annotated_path = output_dir / f"{capture_id}_annotated.jpg"
+            annotate(image, target).save(annotated_path, quality=95)
+            with model_lock:
+                run_captures[run_id][image_id] = annotated_path
             LOGGER.info("%s -> %s, image ID %s, confidence %.3f, %.2fs",
                         upload.filename, IMAGE_LABELS[image_id], image_id,
                         score, time.monotonic() - started)
@@ -130,10 +139,12 @@ def create_app(model, model_path, output_dir, confidence=0.30):
     @app.get("/stitch")
     def stitch():
         cutoff = time.time() - 20 * 60
-        paths = sorted(path for path in output_dir.glob("*_annotated.jpg")
-                       if path.stat().st_mtime >= cutoff)[-30:]
+        with model_lock:
+            run_id = request.args.get('run_id', current_run[0])
+            candidates = list(run_captures.get(run_id, {}).values())
+        paths = sorted(path for path in candidates if path.exists() and path.stat().st_mtime >= cutoff)
         if not paths:
-            return jsonify(error="No recognized captures in the last 20 minutes"), 404
+            return jsonify(error="No recognized captures for this run in the last 20 minutes"), 404
         tiles = []
         for path in paths:
             with Image.open(path) as source:

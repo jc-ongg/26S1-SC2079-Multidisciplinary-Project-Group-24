@@ -15,6 +15,10 @@ import androidx.fragment.app.Fragment
 import com.example.mdpgroup24.R
 import com.example.mdpgroup24.bluetooth.BluetoothConnectionService
 import com.example.mdpgroup24.bluetooth.BluetoothSession
+import com.example.mdpgroup24.bluetooth.ChatHistory
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ChatFragment :
     Fragment(R.layout.fragment_chat),
@@ -76,7 +80,7 @@ class ChatFragment :
         )
 
 
-        messagesContainer.removeAllViews()
+        renderHistory()
 
 
         parentFragmentManager
@@ -91,7 +95,7 @@ class ChatFragment :
                         it.isNotBlank()
                     }
                     ?.let {
-                        addSentMessage(it)
+                        BluetoothSession.recordChat(ChatHistory.Kind.SENT, it)
                     }
             }
 
@@ -118,7 +122,7 @@ class ChatFragment :
 
         // Clear history
         clearButton.setOnClickListener {
-            messagesContainer.removeAllViews()
+            BluetoothSession.clearChat()
             messageInput.setText("")
         }
     }
@@ -160,7 +164,7 @@ class ChatFragment :
 
         if (!BluetoothSession.isConnected) {
 
-            addSystemMessage(
+            BluetoothSession.recordChat(ChatHistory.Kind.SYSTEM,
                 "Bluetooth not connected"
             )
 
@@ -174,13 +178,13 @@ class ChatFragment :
 
         if (sent) {
 
-            addSentMessage(message)
+            BluetoothSession.recordChat(ChatHistory.Kind.SENT, message)
 
             messageInput.setText("")
 
         } else {
 
-            addSystemMessage(
+            BluetoothSession.recordChat(ChatHistory.Kind.SYSTEM,
                 "Failed to send message"
             )
         }
@@ -194,14 +198,24 @@ class ChatFragment :
     override fun onMessageReceived(
         message: String
     ) {
+        // BluetoothSession logs complete frames even when this tab has no view.
+    }
 
-        if (!isAdded || view == null) {
-            return
+    override fun onChatHistoryChanged() {
+        if (isAdded && view != null) renderHistory()
+    }
+
+    private fun renderHistory() {
+        messagesContainer.removeAllViews()
+        val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        BluetoothSession.chatHistory.snapshot().forEach { entry ->
+            val text = "${timeFormat.format(Date(entry.time))}  ${entry.message}"
+            when (entry.kind) {
+                ChatHistory.Kind.SENT -> addSentMessage(text)
+                ChatHistory.Kind.RECEIVED -> addReceivedMessage(text)
+                ChatHistory.Kind.SYSTEM -> addSystemMessage(text)
+            }
         }
-
-        addReceivedMessage(
-            message.trim()
-        )
     }
 
 

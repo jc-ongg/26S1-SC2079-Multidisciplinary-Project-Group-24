@@ -2,6 +2,10 @@ package com.example.mdpgroup24.bluetooth
 
 import android.bluetooth.BluetoothDevice
 import android.content.Context
+import java.util.UUID
+import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
 
 object BluetoothSession :
     BluetoothConnectionService.Listener {
@@ -16,6 +20,11 @@ object BluetoothSession :
         fun onMessageReceived(
             message: String
         )
+
+        fun onPreparationChanged() {}
+        fun onChatHistoryChanged() {}
+        fun onTaskStatus(status: String) {}
+        fun onManualCompleted(command: String) {}
     }
 
 
@@ -32,6 +41,76 @@ object BluetoothSession :
 
     private var currentDevice:
             BluetoothDevice? = null
+
+    val preparation = Task1Preparation()
+    val chatHistory = ChatHistory()
+    private val frames = BluetoothFrameBuffer()
+    private var pendingManual: String? = null
+    var task1StartedAt: Long? = null
+        private set
+    var task1FinishedAt: Long? = null
+        private set
+    val task1Running: Boolean get() = task1StartedAt != null && task1FinishedAt == null
+
+    fun resetTask1Timer() { task1StartedAt = null; task1FinishedAt = null }
+    fun finishTask1Timer() {
+        if (task1Running) task1FinishedAt = SystemClock.elapsedRealtime()
+    }
+
+    fun sendManual(command: String): Boolean {
+        if (!isConnected || task1Running || pendingManual != null) return false
+        invalidatePreparation()
+        if (!send("//$command//")) return false
+        pendingManual = command
+        return true
+    }
+
+    fun invalidatePreparation() {
+        preparation.invalidate()
+        listeners.toList().forEach { it.onPreparationChanged() }
+    }
+
+    fun sendMap(map: String): Boolean {
+        if (!isConnected || task1Running || pendingManual != null) return false
+        val id = UUID.randomUUID().toString().replace("-", "")
+        preparation.submit(id)
+        listeners.toList().forEach { it.onPreparationChanged() }
+        val payload = map.replaceFirst("MAP", "MAP,$id")
+        if (!send("//$payload//")) {
+            invalidatePreparation()
+            return false
+        }
+        recordChat(ChatHistory.Kind.SENT, "Map sent. Preparing Task 1 route.")
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (preparation.requestId == id && preparation.state == Task1Preparation.State.PLANNING) {
+                preparation.receive("PLAN,$id,ERROR,No route confirmation. Check the Pi update and Algo connection; send map again.")
+                listeners.toList().forEach { it.onPreparationChanged() }
+                recordChat(ChatHistory.Kind.SYSTEM, preparation.error ?: "Route preparation timed out")
+            }
+        }, 70_000L)
+        return true
+    }
+
+    fun startTask1(): Boolean {
+        if (!isConnected || task1Running || pendingManual != null || !preparation.canStart) return false
+        if (!send("//BEGIN,1,${preparation.requestId}//")) return false
+        task1StartedAt = SystemClock.elapsedRealtime()
+        task1FinishedAt = null
+        preparation.start()
+        listeners.toList().forEach { it.onPreparationChanged() }
+        recordChat(ChatHistory.Kind.SENT, "Task 1 started")
+        return true
+    }
+
+    fun recordChat(kind: ChatHistory.Kind, message: String) {
+        chatHistory.add(kind, message)
+        listeners.toList().forEach { it.onChatHistoryChanged() }
+    }
+
+    fun clearChat() {
+        chatHistory.clear()
+        listeners.toList().forEach { it.onChatHistoryChanged() }
+    }
 
 
     // ============================================================
@@ -175,6 +254,9 @@ object BluetoothSession :
         device: BluetoothDevice?
     ) {
 
+        frames.clear()
+        pendingManual = null
+        invalidatePreparation()
         currentState =
             state
 
@@ -211,14 +293,40 @@ object BluetoothSession :
         message: String
     ) {
 
-        listeners
-            .toList()
-            .forEach { listener ->
+        // Apply TARGET/ROBOT to the visible map before handling completion.
+        listeners.toList().forEach { it.onMessageReceived(message) }
 
-                listener
-                    .onMessageReceived(
-                        message
-                    )
+        val previousHistory = chatHistory.revision
+        val batch = frames.feed(message)
+        batch.text.forEach { chatHistory.add(ChatHistory.Kind.RECEIVED, it) }
+        batch.frames.forEach { payload ->
+            chatHistory.receiveFrame(payload)
+            if (preparation.receive(payload)) {
+                listeners.toList().forEach { it.onPreparationChanged() }
+                if (preparation.canStart) {
+                    chatHistory.add(ChatHistory.Kind.RECEIVED, "Task 1 route ready. You can press Start.")
+                } else if (preparation.state == Task1Preparation.State.ERROR) {
+                    chatHistory.add(ChatHistory.Kind.SYSTEM, preparation.error ?: "Route preparation failed")
+                }
             }
+            if (payload.startsWith("STATUS,")) {
+                val status = payload.substringAfter(",").trim()
+                val command = pendingManual
+                val name = mapOf("F" to "forward", "B" to "backward", "L" to "left", "R" to "right")[command]
+                if (command != null && status == "Manual $name complete") {
+                    pendingManual = null
+                    listeners.toList().forEach { it.onManualCompleted(command) }
+                }
+                if (status.contains("paused", true) || status.contains("failed", true) || status.contains("busy", true)) {
+                    pendingManual = null
+                }
+                if (status.equals("finished", true)) finishTask1Timer()
+                listeners.toList().forEach { it.onTaskStatus(status) }
+            }
+        }
+        if (chatHistory.revision != previousHistory) {
+            listeners.toList().forEach { it.onChatHistoryChanged() }
+        }
+
     }
 }

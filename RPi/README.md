@@ -3,8 +3,9 @@
 Core source was recovered from `/home/nat/SC2079-MDP/rpi` on 2026-10-01.
 This replaces a reconstructed branch copy where it conflicted with the Pi.
 The Pi is not a Git checkout; pushing this repository does not deploy it.
-The user no longer has access to the Pi as of 2026-10-02. Live state and any
-later changes are unknown; this repository is a source snapshot with local fixes.
+Pi access returned on 2026-10-07. The four Task 1 runtime changes were applied
+against backed-up live files; see [deployment record](../docs/RPI_DEPLOYMENT_2026-10-07.md).
+This repository remains a source snapshot rather than a complete live mirror.
 
 ## Entry points
 
@@ -21,7 +22,11 @@ behave differently; prefer the explicit Python command above.
 
 ## Configuration
 
-`settings.py` in the repository supports these session overrides:
+`settings.py` in the repository supports session overrides.
+
+The live settings were preserved during the 2026-10-07 deployment and still
+use fixed laptop IP `192.168.50.181`. The override below works only after
+deploying the separate updated settings support.
 
 ```bash
 LAPTOP_IP=192.168.50.181 python3 -u task1_main.py
@@ -52,6 +57,16 @@ historical scripts are live motor tests, not unit tests.
 
 ## Deployment
 
+The four 2026-10-04 Task 1 runtime files were **deployed on 2026-10-07**. All
+57 offline Pi tests passed on the Pi, a laptop route was accepted, and live
+imports/checksums passed. The controller was left stopped. See the
+[deployment record](../docs/RPI_DEPLOYMENT_2026-10-07.md) and
+[Task 1 run guide](../docs/TASK1_RUN_GUIDE_2026-10-07.md) for remaining tablet
+installation and physical checks. New source
+plans on MAP, requires a matching READY request on BEGIN, reports positions
+after the corresponding motor ACK, preserves all obstacles on revisits, and
+terminates/joins children during shutdown.
+
 Do not use `scp -r RPi/* ...`, `git reset`, or a GitHub pull to replace the
 Pi's newer files. First stop the robot program yourself, take a source backup,
 compare each target against its expected original hash, review a narrow patch,
@@ -59,8 +74,8 @@ and test before restarting. Keep the backup outside the live source directory.
 
 See [repository guide](../docs/REPOSITORY_GUIDE.md) for what remains undeployed.
 
-Known unresolved issue: `RaspberryPi.stop()` does not terminate/join all its
-workers. In the last accessible session, two Task1 parents and a missed STM ACK
-were observed after SSH resets/restarts. Do not mistake worker children for
-duplicate controllers, but do not run two independent parents on the same links.
-This cleanup does not claim to fix shutdown or validate it on the unavailable Pi.
+Before access was lost, two Task1 parents and a missed STM ACK were observed
+after SSH resets/restarts. The deployed shutdown fix now terminates/joins workers,
+but this still requires physical verification. Do not mistake
+worker children for duplicate controllers, and do not run two independent
+parents on the same links.

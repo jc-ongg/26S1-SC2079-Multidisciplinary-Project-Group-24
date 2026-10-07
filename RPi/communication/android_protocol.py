@@ -64,13 +64,14 @@ def frame(payload):
 class AndroidState:
     """Tracks the map Android has described so far.
 
-    Obstacles arrive one ``//OBSTACLE,...//`` at a time, but the RPi wants the
-    whole list when the run starts, so they are accumulated here and emitted on
-    ``//BEGIN//``.
+    Edits invalidate prepared routes. MAP submits the snapshot for planning;
+    BEGIN starts only that prepared request and never requests a second route.
     """
 
     def __init__(self):
         self.robot = {"x": 1, "y": 1, "d": 0}
+        self.has_robot = False
+        self.plan_id = ""
         self.obstacles = {}
         self.outbox = deque()
 
@@ -85,30 +86,28 @@ class AndroidState:
 
         if head == "ROBOT" and len(parts) >= 4:
             if parts[3] == "-1":
-                return []                      # removal, nothing to run
+                self.has_robot = False
+                return [{"cat": "invalidate", "value": ""}]
             self.robot = {"x": int(parts[1]), "y": int(parts[2]),
                           "d": LETTER_TO_DIR.get(parts[3].upper(), 0)}
-            return []
+            self.has_robot = True
+            return [{"cat": "invalidate", "value": ""}]
 
         if head == "OBSTACLE" and len(parts) >= 5:
             oid = int(parts[1])
             if parts[4] == "-1":
                 self.obstacles.pop(oid, None)
-                return []
+                return [{"cat": "invalidate", "value": ""}]
             self.obstacles[oid] = {"id": oid, "x": int(parts[2]),
                                    "y": int(parts[3]),
                                    "d": LETTER_TO_DIR.get(parts[4].upper(), 0)}
-            return []
+            return [{"cat": "invalidate", "value": ""}]
 
         if head == "BEGIN":
-            # The run starts: hand over the accumulated map, then the go signal.
-            return [
-                {"cat": "obstacles",
-                 "value": {"obstacles": list(self.obstacles.values()),
-                           "mode": "0",
-                           "robot": dict(self.robot)}},
-                {"cat": "control", "value": "start"},
-            ]
+            if len(parts) > 1 and parts[1] != "1":
+                return [{"cat": "info", "value": "Task 2 requires its own runner"}]
+            return [{"cat": "control", "value": "start",
+                     "plan_id": parts[2] if len(parts) > 2 else self.plan_id}]
 
         if head in MANUAL_MOVES:
             return [{"cat": "manual", "value": MANUAL_MOVES[head]}]
@@ -124,6 +123,8 @@ class AndroidState:
         """``//MAP/ROBOT,3,3,N/OBSTACLE,1,5,7,E//`` is an authoritative snapshot."""
         self.obstacles = {}
         self.robot = {"x": 1, "y": 1, "d": 0}
+        self.has_robot = False
+        self.plan_id = payload.split("/", 1)[0].partition(",")[2].strip() or "legacy"
         for section in payload.split("/")[1:]:
             section = section.strip()
             if not section:
@@ -133,12 +134,17 @@ class AndroidState:
             if kind == "ROBOT" and len(bits) >= 4 and bits[3] != "-1":
                 self.robot = {"x": int(bits[1]), "y": int(bits[2]),
                               "d": LETTER_TO_DIR.get(bits[3].upper(), 0)}
+                self.has_robot = True
             elif kind == "OBSTACLE" and len(bits) >= 5 and bits[4] != "-1":
                 oid = int(bits[1])
                 self.obstacles[oid] = {"id": oid, "x": int(bits[2]),
                                        "y": int(bits[3]),
                                        "d": LETTER_TO_DIR.get(bits[4].upper(), 0)}
-        return []
+        if not self.has_robot or not self.obstacles:
+            return [{"cat": "invalidate", "value": ""}]
+        return [{"cat": "obstacles", "value": {
+            "obstacles": list(self.obstacles.values()), "mode": "0",
+            "robot": dict(self.robot), "plan_id": self.plan_id}}]
 
 
 # ---------------------------------------------------------------------- outbound
@@ -148,6 +154,11 @@ def to_frame(cat, value):
     Returns None when there is nothing meaningful to send, so callers can skip
     rather than emit an empty frame.
     """
+    if cat == "plan" and isinstance(value, dict):
+        reason = str(value.get('reason', '')).replace('//', '/')
+        suffix = f",{reason}" if reason else ""
+        return frame(f"PLAN,{value['id']},{value['state']}{suffix}")
+
     if cat == "location" and isinstance(value, dict):
         letter = DIR_TO_LETTER.get(value.get("d", 0), "N")
         return frame(f"ROBOT,{value.get('x')},{value.get('y')},{letter}")

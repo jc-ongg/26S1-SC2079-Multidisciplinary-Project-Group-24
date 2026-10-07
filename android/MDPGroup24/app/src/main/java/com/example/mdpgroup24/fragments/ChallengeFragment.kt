@@ -12,9 +12,13 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.example.mdpgroup24.R
 import com.example.mdpgroup24.bluetooth.BluetoothSession
+import com.example.mdpgroup24.bluetooth.BluetoothConnectionService
+import com.example.mdpgroup24.bluetooth.Task1Preparation
+import android.bluetooth.BluetoothDevice
+import android.widget.Toast
 
 class ChallengeFragment :
-    Fragment(R.layout.fragment_challenge) {
+    Fragment(R.layout.fragment_challenge), BluetoothSession.Listener {
 
     private lateinit var timerText: TextView
     private lateinit var statusText: TextView
@@ -136,6 +140,19 @@ class ChallengeFragment :
 
         setupTaskSelection()
 
+        BluetoothSession.task1StartedAt?.let { started ->
+            selectedTask = 1
+            startTime = started
+            val finished = BluetoothSession.task1FinishedAt
+            timerRunning = finished == null
+            elapsedTime = (finished ?: SystemClock.elapsedRealtime()) - started
+            challengeState = if (timerRunning) ChallengeState.RUNNING else ChallengeState.FINISHED
+        }
+        timerText.text = formatTime(elapsedTime)
+        if (timerRunning) timerHandler.post(timerRunnable)
+
+        BluetoothSession.addListener(this)
+
         updateChallengeUi()
 
 
@@ -206,7 +223,7 @@ class ChallengeFragment :
                 1
 
 
-            updateTaskSelectionUi()
+            updateChallengeUi()
         }
 
 
@@ -224,7 +241,7 @@ class ChallengeFragment :
                 2
 
 
-            updateTaskSelectionUi()
+            updateChallengeUi()
         }
 
 
@@ -273,12 +290,22 @@ class ChallengeFragment :
 
     private fun startChallenge() {
 
+        val sent = if (selectedTask == 1) BluetoothSession.startTask1()
+                   else sendProtocolMessage("BEGIN,$selectedTask")
+        if (!sent) {
+            Toast.makeText(requireContext(), "Connect Bluetooth and send the map to prepare a route first.",
+                Toast.LENGTH_SHORT).show()
+            updateChallengeUi()
+            return
+        }
+
         elapsedTime =
             0L
 
 
         startTime =
-            SystemClock.elapsedRealtime()
+            if (selectedTask == 1) BluetoothSession.task1StartedAt ?: SystemClock.elapsedRealtime()
+            else SystemClock.elapsedRealtime()
 
 
         timerRunning =
@@ -287,11 +314,6 @@ class ChallengeFragment :
 
         challengeState =
             ChallengeState.RUNNING
-
-
-        sendProtocolMessage(
-            "BEGIN,$selectedTask"
-        )
 
 
         timerHandler.post(
@@ -307,7 +329,7 @@ class ChallengeFragment :
     // STOP
     // =====================================================
 
-    private fun stopChallenge() {
+    private fun stopChallenge(sendResult: Boolean = true) {
 
         if (!timerRunning) {
             return
@@ -315,7 +337,8 @@ class ChallengeFragment :
 
 
         elapsedTime =
-            SystemClock.elapsedRealtime() -
+            (if (selectedTask == 1) BluetoothSession.task1FinishedAt ?: SystemClock.elapsedRealtime()
+             else SystemClock.elapsedRealtime()) -
                     startTime
 
 
@@ -338,9 +361,13 @@ class ChallengeFragment :
             ChallengeState.FINISHED
 
 
-        sendProtocolMessage(
-            "RESULT,$selectedTask,${formatTime(elapsedTime)}"
-        )
+        if (sendResult) {
+            sendProtocolMessage("RESULT,$selectedTask,${formatTime(elapsedTime)}")
+        }
+        if (selectedTask == 1) {
+            BluetoothSession.finishTask1Timer()
+            BluetoothSession.invalidatePreparation()
+        }
 
 
         updateChallengeUi()
@@ -352,6 +379,8 @@ class ChallengeFragment :
     // =====================================================
 
     private fun resetChallenge() {
+
+        if (selectedTask == 1) BluetoothSession.resetTask1Timer()
 
         timerRunning =
             false
@@ -392,8 +421,18 @@ class ChallengeFragment :
 
             ChallengeState.READY -> {
 
-                statusText.text =
-                    "Ready"
+                val canStart = BluetoothSession.isConnected &&
+                    (selectedTask != 1 || BluetoothSession.preparation.canStart)
+
+                statusText.text = when {
+                    !BluetoothSession.isConnected -> "Connect Bluetooth"
+                    selectedTask != 1 -> "Ready"
+                    BluetoothSession.preparation.state == Task1Preparation.State.PLANNING -> "Preparing route…"
+                    BluetoothSession.preparation.state == Task1Preparation.State.ERROR ->
+                        BluetoothSession.preparation.error ?: "Route failed. Send map again."
+                    canStart -> "Route ready"
+                    else -> "Send map to prepare route"
+                }
 
 
                 statusText.setTextColor(
@@ -413,16 +452,15 @@ class ChallengeFragment :
                 updateTaskSelectionUi()
 
 
-                startButton.isEnabled =
-                    true
+                startButton.isEnabled = canStart
 
                 startButton.text =
                     "Start"
 
                 setButtonStyle(
                     startButton,
-                    R.color.control_active,
-                    R.color.white
+                    if (canStart) R.color.control_active else R.color.control_inactive,
+                    if (canStart) R.color.white else R.color.odyssey_text_muted
                 )
 
 
@@ -638,11 +676,32 @@ class ChallengeFragment :
 
     override fun onDestroyView() {
 
+        BluetoothSession.removeListener(this)
+
         timerHandler.removeCallbacks(
             timerRunnable
         )
 
 
         super.onDestroyView()
+    }
+
+    override fun onMessageReceived(message: String) {}
+
+    override fun onConnectionStateChanged(
+        state: BluetoothConnectionService.ConnectionState,
+        device: BluetoothDevice?
+    ) {
+        if (view != null && ::startButton.isInitialized) updateChallengeUi()
+    }
+
+    override fun onPreparationChanged() {
+        if (view != null && ::startButton.isInitialized) updateChallengeUi()
+    }
+
+    override fun onTaskStatus(status: String) {
+        if (selectedTask == 1 && timerRunning && status.equals("finished", true)) {
+            stopChallenge(sendResult = false)
+        }
     }
 }

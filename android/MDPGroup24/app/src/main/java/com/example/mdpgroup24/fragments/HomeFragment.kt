@@ -1262,6 +1262,15 @@ class HomeFragment :
         )
     }
 
+    override fun onManualCompleted(command: String) {
+        when (command) {
+            "F" -> moveRobotForward()
+            "B" -> moveRobotBackward()
+            "L" -> rotateRobotLeft()
+            "R" -> rotateRobotRight()
+        }
+    }
+
 
     fun saveCurrentLayout(): Boolean {
 
@@ -1431,6 +1440,7 @@ class HomeFragment :
 
 
             if (loaded) {
+                BluetoothSession.invalidatePreparation()
                 updateVesselInformation()
             }
 
@@ -1490,6 +1500,8 @@ class HomeFragment :
     private fun sendProtocolMessage(
         message: String
     ): Boolean {
+
+        BluetoothSession.invalidatePreparation()
 
         if (!BluetoothSession.isConnected) {
             return false
@@ -1958,7 +1970,8 @@ class HomeFragment :
 
     fun sendFullMap(): Boolean {
 
-        if (!BluetoothSession.isConnected) {
+        if (!BluetoothSession.isConnected || arenaGridView.getRobot() == null ||
+            arenaGridView.getObstacles().isEmpty()) {
             return false
         }
 
@@ -2015,28 +2028,7 @@ class HomeFragment :
             message.toString()
 
 
-        val sent =
-            sendProtocolMessage(
-                payload
-            )
-
-
-        if (sent) {
-
-            childFragmentManager
-                .setFragmentResult(
-                    ChatFragment.RESULT_EXTERNAL_SENT_MESSAGE,
-                    Bundle().apply {
-                        putString(
-                            ChatFragment.KEY_MESSAGE,
-                            "//$payload//"
-                        )
-                    }
-                )
-        }
-
-
-        return sent
+        return BluetoothSession.sendMap(payload)
     }
 
 

@@ -1,5 +1,15 @@
 # SC2079 MDP — Group 24
 
+**Task 1 readiness and assessment walkthrough (2026-10-07):** see
+[requirements, readiness gaps and run checklist](docs/TASK1_RUN_GUIDE_2026-10-07.md),
+plus the [original pending Pi changes](docs/TASK1_READINESS_2026-10-04.md).
+The current branch adds Send Map -> route preparation -> enabled Start,
+timestamped target findings in Chat, and command-aligned tablet positions.
+The four matching Pi runtime files were deployed and verified on 2026-10-07;
+see [Pi deployment record](docs/RPI_DEPLOYMENT_2026-10-07.md). Use the updated
+Android build for the new READY gate. Tablet installation and a physical run
+remain unverified; the Pi controller was left stopped.
+
 **Use `main` as the shared integration branch.** It contains all four components.
 The four redundant branches were removed locally and on GitHub on 2026-10-02
 after verifying all their commits were included in main. Shared commit history
@@ -22,8 +32,8 @@ source and reference documents are committed. See [stash audit](docs/STASH_AUDIT
 The physical Pi remains the source of truth for deployed code. The repository
 contains its recovered core source plus reviewed follow-up fixes. **A Git push
 does not update the Pi. Do not bulk-copy this folder over it.**
-The user no longer has access to the physical Pi as of **2026-10-02**. Its folder
-here is a preserved source snapshot, not a verified live mirror. See
+Access returned on **2026-10-07** for the narrow Task 1 deployment. Its folder
+here remains a source snapshot, not a complete verified live mirror. See
 [latest repository status](docs/REPO_STATUS_2026-10-02.md).
 
 ## Start on this Windows laptop

@@ -278,7 +278,7 @@ class AndroidLink(Link):
             self.logger.debug(f"Nothing to send for {message.cat}: {message.value}")
             return
         try:
-            self.client_sock.send(payload.encode("utf-8"))
+            self.client_sock.sendall(payload.encode("utf-8"))
             self.logger.debug(f"Sent to Android: {payload}")
         except OSError as e:
             self.logger.error(f"Error sending message to Android: {e}")
