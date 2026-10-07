@@ -8,6 +8,7 @@ Use `main` for shared work. Older experiments are archived and backed up.
 [Planner rollback and backups](docs/TASK1_ROLLBACK_2026-10-07.md)
 [Assessment checklist](docs/TASK1_RUN_GUIDE_2026-10-07.md)
 [Current photo retries and finish behavior](docs/TASK1_PHOTO_STOP_2026-10-07.md)
+[Proposed improvements and 5 cm / 1 cm trial handover](docs/TASK1_IMPROVEMENT_BACKLOG_2026-10-07.md)
 
 From this Windows repository root:
 
