@@ -1,5 +1,9 @@
 # Repository consolidation — 2026-10-01
 
+**Current setup:** [speed50 / 5 cm test configuration and Pi cleanup](TASK1_GRID5_TEST.md)
+supersedes the deployment/access status and source locations below. This document
+preserves the original consolidation history and recovery tags.
+
 Updated repository status on **2026-10-02**: see
 [current status and cleanup](REPO_STATUS_2026-10-02.md). The Pi is no longer
 accessible; runtime/deployment observations below describe the older session.

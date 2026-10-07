@@ -6,6 +6,7 @@ This is separate from the Algo server and does not modify the Pi controller.
 
 import argparse
 import io
+import hashlib
 import logging
 from pathlib import Path
 import threading
@@ -155,10 +156,15 @@ def create_app(model, model_path, output_dir, confidence=0.30):
         canvas = Image.new("RGB", (480 * columns, 360 * ((len(tiles) + columns - 1) // columns)))
         for index, tile in enumerate(tiles):
             canvas.paste(tile, ((index % columns) * 480, (index // columns) * 360))
+        # Stable per-run filename; client run IDs never become file paths.
+        saved_path = output_dir / f'stitched-{hashlib.sha256(run_id.encode()).hexdigest()[:12]}.jpg'
+        canvas.save(saved_path, format="JPEG", quality=95)
         buffer = io.BytesIO()
         canvas.save(buffer, format="JPEG", quality=95)
         buffer.seek(0)
-        return send_file(buffer, mimetype="image/jpeg")
+        response = send_file(buffer, mimetype="image/jpeg")
+        response.headers['X-Stitch-File'] = saved_path.name
+        return response
 
     return app
 

@@ -18,7 +18,6 @@ spec.loader.exec_module(validation)
 
 
 class PathApiTests(unittest.TestCase):
-    @unittest.skipUnless(consts.MOVEMENT_PROFILE == 'original' and consts.REVERSE_CALIBRATION == 'original' and consts.FORWARD_CALIBRATION == 'original', 'original-profile unreachable-edge regression')
     def test_eight_obstacle_layout_rejects_unreachable_candidate_without_crashing(self):
         payload = ('STATUS,OBSTACLE_LIST,false,1;1;NORTH,false,'
                    '1;5;13;WEST | 2;5;7;SOUTH | 3;12;9;EAST | '
@@ -45,7 +44,8 @@ class PathApiTests(unittest.TestCase):
                 plan = validation.parse_plan(response.json)
                 self.assertEqual(len(plan), len(response.json['data']['stm_commands']))
                 self.assertEqual(plan[-1][0], 'FIN')
-                self.assertEqual(plan[-1][1], {key: response.json['data']['path'][-1][key] for key in ('x', 'y', 'd')})
+                self.assertEqual(plan[-1][1], {key: response.json['data']['path'][-1][key]
+                    for key in ('x', 'y', 'd', 'planner_x', 'planner_y')})
 
     def test_revisit_skip_obstacle_is_retained_but_not_photographed(self):
         payload = 'STATUS,OBSTACLE_LIST,true,1;1;NORTH,false,1;5;10;SOUTH | 2;15;15;SKIP,true,true'
@@ -56,9 +56,9 @@ class PathApiTests(unittest.TestCase):
         self.assertTrue(any(command.startswith('SNAP1') for command in commands))
         self.assertFalse(any(command.startswith('SNAP2') for command in commands))
         from entities.Entity import Grid, Obstacle
-        arena = Grid(20, 20)
-        arena.add_obstacle(Obstacle(15, 15, 8, 2))
-        self.assertFalse(arena.reachable(15, 15))
+        arena = Grid(40, 40)
+        arena.add_obstacle(Obstacle(30, 30, 8, 2))
+        self.assertFalse(arena.reachable(30, 30))
 
     def test_status_identifies_the_loaded_profile_and_speed(self):
         response = app.test_client().get('/status')
@@ -66,15 +66,17 @@ class PathApiTests(unittest.TestCase):
         self.assertEqual(response.json, {'status': 'ok',
                                         'movement_profile': consts.MOVEMENT_PROFILE,
                                         'recommended_motor_speed': consts.RECOMMENDED_MOTOR_SPEED,
-                                        'reverse_calibration': consts.REVERSE_CALIBRATION,
-                                        'forward_calibration': consts.FORWARD_CALIBRATION})
+                                        'grid_cell_cm': 5, 'input_cell_cm': 10,
+                                        'arena_cells': 40})
 
-    @unittest.skipUnless(consts.MOVEMENT_PROFILE == 'original' and consts.REVERSE_CALIBRATION == 'original' and consts.FORWARD_CALIBRATION == 'original', 'original-only golden maps')
-    def test_recorded_maps_keep_original_turns_and_ten_cm_scaling(self):
+    def test_recorded_maps_cover_both_targets_on_finer_grid(self):
         golden = Path(__file__).resolve().parents[2] / 'RPi-services/golden/expected_path.json'
         for case in json.loads(golden.read_text()):
             with self.subTest(payload=case['payload']), contextlib.redirect_stdout(io.StringIO()):
                 response = app.test_client().post('/path', data=case['payload'], content_type='text/plain')
                 self.assertEqual(response.status_code, 200)
                 self.assertIsNone(response.json['error'])
-                self.assertEqual(response.json['data']['stm_commands'], case['stm_commands'])
+                commands = response.json['data']['stm_commands']
+                self.assertEqual({int(c[4:].split('_')[0]) for c in commands if c.startswith('SNAP')}, {1, 2})
+                self.assertEqual(response.json['data']['grid_cell_cm'], 5)
+                self.assertEqual(response.json['data']['input_cell_cm'], 10)

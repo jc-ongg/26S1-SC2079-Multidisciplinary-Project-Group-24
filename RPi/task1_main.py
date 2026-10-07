@@ -6,40 +6,37 @@ import json
 import urllib.request
 
 
-def check_profile(calibrated):
+def check_profile():
     """Verify planner/speed pairing before opening Bluetooth or serial."""
     from settings import API_IP, API_PORT
     with urllib.request.urlopen(f"http://{API_IP}:{API_PORT}/status", timeout=5) as response:
         status = json.load(response)
-    expected = "measured25" if calibrated else "original"
-    actual = status.get("movement_profile")
-    if actual != expected and (calibrated or actual is not None):
-        raise RuntimeError(f"Algo profile is {actual!r}; expected {expected!r}. Restart Algo with the matching profile.")
-    if status.get("status") != "ok":
-        raise RuntimeError("Algo status is not ok")
-    return 25 if calibrated else 50
+    required = {'status': 'ok', 'movement_profile': 'turn-guide-speed50-grid5',
+                'recommended_motor_speed': 50, 'grid_cell_cm': 5,
+                'input_cell_cm': 10, 'arena_cells': 40}
+    for key, expected in required.items():
+        if status.get(key) != expected:
+            raise RuntimeError(f"Algo {key} is {status.get(key)!r}; expected {expected!r}. Restart the standard laptop launcher.")
+    return 50
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manual", action="store_true", help="Run Android arrow controls only")
-    parser.add_argument("--calibrated", action="store_true", help="Trial measured25 turns at motor speed 25; requires matching Algo")
     args = parser.parse_args()
-    if args.manual and args.calibrated:
-        parser.error("--calibrated is for Task 1, not --manual")
 
     if args.manual:
         from manual_control import main as run_manual
         run_manual()
     else:
         try:
-            speed = check_profile(args.calibrated)
+            speed = check_profile()
         except (OSError, ValueError, RuntimeError) as exc:
             parser.exit(1, f"Task 1 not started: {exc}\n")
-        from final_week_8_backup import RaspberryPi
+        from task1_controller import RaspberryPi
         robot = RaspberryPi()
         robot.stm_link.speed = speed
-        print(f"Task 1 profile: {'measured25' if args.calibrated else 'original'}; motor speed: {speed}", flush=True)
+        print("Task 1: motor speed 50; 5 cm planner; 10 cm tablet map", flush=True)
         robot.start()
 
 

@@ -4,9 +4,11 @@ import re
 import queue
 import time
 import subprocess
-from multiprocessing import Process, Manager
+from multiprocessing import Process, Manager, Event
+import signal
 from typing import Optional
 import os
+from pathlib import Path
 import requests
 from communication.android import AndroidLink, AndroidMessage
 from communication.stm32 import STMLink
@@ -20,9 +22,17 @@ from path_plan import parse_plan
 # A long compressed straight can take more than 15 s at the current speed.
 # This is a completion watchdog, not an inter-command animation delay.
 ACK_TIMEOUT = 60
+ALGO_TIMEOUT = (3, 180)  # Connection timeout, then up to three minutes for planning.
 CAPTURE_ATTEMPTS = 7
 CAPTURE_TIMEOUT = 10
 IMAGE_API_TIMEOUT = (3, 10)
+CAPTURE_DIR = Path(__file__).resolve().parent / 'captures'
+
+
+def run_worker(target):
+    # Ctrl-C is handled once by the parent, which stops and joins its workers.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    target()
 
 
 class PiAction:
@@ -63,11 +73,13 @@ class RaspberryPi:
 
         self.manager = Manager()
 
-        self.android_dropped = self.manager.Event()
-        self.unpause = self.manager.Event()
+        # Interrupting a blocking Manager.Event.wait leaves its RPC pending;
+        # a subsequent clear on that connection can hang during shutdown.
+        self.android_dropped = Event()
+        self.unpause = Event()
 
         self.movement_lock = self.manager.Lock()
-        self.motion_fault = self.manager.Event()
+        self.motion_fault = Event()
         self.stm_ack_guard = self.manager.Lock()
         self.stm_pending_id = self.manager.Value('i', 0)
         self.stm_pending_location = self.manager.dict()
@@ -107,11 +119,11 @@ class RaspberryPi:
             self.check_api()
 
             # Define child processes
-            self.proc_recv_android = Process(target=self.recv_android)
-            self.proc_recv_stm32 = Process(target=self.recv_stm)
-            self.proc_android_sender = Process(target=self.android_sender)
-            self.proc_command_follower = Process(target=self.command_follower)
-            self.proc_rpi_action = Process(target=self.rpi_action)
+            self.proc_recv_android = Process(target=run_worker, args=(self.recv_android,))
+            self.proc_recv_stm32 = Process(target=run_worker, args=(self.recv_stm,))
+            self.proc_android_sender = Process(target=run_worker, args=(self.android_sender,))
+            self.proc_command_follower = Process(target=run_worker, args=(self.command_follower,))
+            self.proc_rpi_action = Process(target=run_worker, args=(self.rpi_action,))
 
             # Start child processes
             self.proc_recv_android.start()
@@ -190,8 +202,8 @@ class RaspberryPi:
                     time.sleep(3)
 
             # Recreate Android processes
-            self.proc_recv_android = Process(target=self.recv_android)
-            self.proc_android_sender = Process(target=self.android_sender)
+            self.proc_recv_android = Process(target=run_worker, args=(self.recv_android,))
+            self.proc_android_sender = Process(target=run_worker, args=(self.android_sender,))
 
             # Start previously killed processes
             self.proc_recv_android.start()
@@ -466,8 +478,10 @@ class RaspberryPi:
                         and new_obstacle_list):
                     self.logger.info("Attempting to go to failed obstacles")
                     self.failed_attempt = True
+                    retry_x = self.current_location.get('planner_x', self.current_location['x'] * 2) / 2
+                    retry_y = self.current_location.get('planner_y', self.current_location['y'] * 2) / 2
                     prepared = self.request_algo({'obstacles': new_obstacle_list, 'mode': '0'},
-                                                self.current_location['x'], self.current_location['y'], self.current_location['d'], retrying=True)
+                                                retry_x, retry_y, self.current_location['d'], retrying=True)
                     self.movement_lock.release()
                     if not prepared:
                         self._pause_motion('Could not prepare the revisit route.')
@@ -525,12 +539,13 @@ class RaspberryPi:
             "info", f"Capturing image for obstacle id: {obstacle_id}"))
 
         url = f"http://{API_IP_IMAGE}:{API_PORT_IMAGE}/predict"
-        filename = f"{int(time.time())}_{obstacle_id}.jpg"
-
-        capture_command = ['rpicam-still', '-e', 'jpg', '-n', '-t', '500', '-o', filename]
+        CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+        prefix = f"{int(time.time())}_{obstacle_id}"
         results = {'image_id': 'NA', 'obstacle_id': 'NA'}
         for attempt in range(1, CAPTURE_ATTEMPTS + 1):
             try:
+                filename = str(CAPTURE_DIR / f'{prefix}_attempt-{attempt}.jpg')
+                capture_command = ['rpicam-still', '-e', 'jpg', '-n', '-t', '500', '-o', filename]
                 self.logger.info(f"Capturing obstacle {obstacle_id}: attempt {attempt}/{CAPTURE_ATTEMPTS}")
                 # Bound camera hangs and retain diagnostics without flooding
                 # the console with normal libcamera mode-selection messages.
@@ -631,7 +646,7 @@ class RaspberryPi:
         url = f"http://{API_IP}:{API_PORT}/path"
         try:
             response = requests.post(url, data=payload,
-                headers={"Content-Type": "text/plain"}, timeout=60)
+                headers={"Content-Type": "text/plain"}, timeout=ALGO_TIMEOUT)
             if response.status_code != 200:
                 raise ValueError(f'Algo returned HTTP {response.status_code}')
             plan = parse_plan(response.json())
@@ -656,6 +671,13 @@ class RaspberryPi:
                 self.current_location.update(x=robot_x, y=robot_y, d=robot_dir)
             for command, pose in plan:
                 self.command_queue.put({'command': command, 'pose': pose, 'revision': revision})
+            visited = {int(command[4:].split('_')[0]) for command, _ in plan if command.startswith('SNAP')}
+            requested = {int(ob['id']) for ob in data['obstacles'] if ob['d'] != 8}
+            omitted = sorted(requested - visited)
+            summary = f'Route prepared for {len(visited)}/{len(requested)} targets.'
+            if omitted:
+                summary += f' No reachable visit in this route for obstacles {omitted}; check the map before Start.'
+            self.android_queue.put(AndroidMessage('info', summary))
             if not retrying:
                 self.plan_state['status'] = 'ready'
                 self.android_queue.put(AndroidMessage('plan', {'id': plan_id, 'state': 'READY'}))

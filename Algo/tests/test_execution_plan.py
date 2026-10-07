@@ -11,7 +11,7 @@ class ExecutionPlanTests(unittest.TestCase):
     def test_turn_endpoint_is_only_on_last_nonzero_command(self):
         start = {'x': 5, 'y': 5, 'd': 0}
         end = {'x': 1, 'y': 7, 'd': 6}
-        pads = [int(value / 10 * UNIT_TO_CM_MULTIPLIER) for value in FORWARD_LEFT]
+        pads = FORWARD_LEFT
         commands = ([f'center,0,forward,{pads[0]}'] if pads[0] else []) + ['left,90,forward,0']
         if pads[1]: commands.append(f'center,0,forward,{pads[1]}')
         poses = build_command_poses(['FL01', 'FIN'], [start, end], commands + ['FIN'])
@@ -22,7 +22,7 @@ class ExecutionPlanTests(unittest.TestCase):
         start = {'x': 1, 'y': 1, 'd': 0}
         end = {'x': 1, 'y': 4, 'd': 0}
         self.assertEqual(build_command_poses(['FW03', 'SNAP1', 'FIN'], [start, end],
-            ['center,0,forward,30', 'SNAP1', 'FIN']), [end, end, end])
+            ['center,0,forward,15', 'SNAP1', 'FIN']), [end, end, end])
 
     def test_fully_cancelled_straights_do_not_consume_motor_poses(self):
         start = {'x': 1, 'y': 1, 'd': 0}

@@ -9,6 +9,7 @@ from pathlib import Path
 import queue
 import subprocess
 import threading
+import tempfile
 import types
 from typing import Optional
 import unittest
@@ -34,17 +35,19 @@ class CountingLock:
 
 class Task1CVLockTests(unittest.TestCase):
     def setUp(self):
-        local = Path(__file__).with_name('final_week_8_backup.py')
-        source = local if local.exists() else Path(__file__).resolve().parents[1] / 'final_week_8_backup.py'
+        local = Path(__file__).with_name('task1_controller.py')
+        source = local if local.exists() else Path(__file__).resolve().parents[1] / 'task1_controller.py'
         tree = ast.parse(source.read_text())
         safe_nodes = [node for node in tree.body if isinstance(node, ast.ClassDef) or (
             isinstance(node, ast.Assign) and any(
                 isinstance(target, ast.Name) and target.id in (
-                    'ACK_TIMEOUT', 'CAPTURE_ATTEMPTS', 'CAPTURE_TIMEOUT', 'IMAGE_API_TIMEOUT'
+                    'ACK_TIMEOUT', 'ALGO_TIMEOUT', 'CAPTURE_ATTEMPTS', 'CAPTURE_TIMEOUT', 'IMAGE_API_TIMEOUT'
                 ) for target in node.targets))]
         self.http = Mock()
         self.http.RequestException = RuntimeError
         self.capture = Mock()
+        self.capture_folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.capture_folder.cleanup)
         self.env = {
             'Optional': Optional, 'queue': queue, 'json': json,
             'time': types.SimpleNamespace(time=lambda: 123456),
@@ -53,6 +56,7 @@ class Task1CVLockTests(unittest.TestCase):
             'SYMBOL_MAP': {},
             'AndroidMessage': lambda cat, value: types.SimpleNamespace(cat=cat, value=value),
             'API_IP': 'mock-algo', 'API_PORT': 8000, 'parse_plan': parse_plan,
+            'CAPTURE_DIR': Path(self.capture_folder.name),
         }
         exec(compile(ast.Module(body=safe_nodes, type_ignores=[]), str(source), 'exec'), self.env)
         self.bot = self.env['RaspberryPi'].__new__(self.env['RaspberryPi'])
@@ -264,12 +268,21 @@ class Task1CVLockTests(unittest.TestCase):
     def test_route_is_prepared_without_allowing_motor_dispatch(self):
         data = self.prepare_route()
         self.assertTrue(self.bot.request_algo(data, 1, 1, 0))
+        self.assertEqual(self.http.post.call_args.kwargs['timeout'], (3, 180))
         self.assertEqual(self.bot.plan_state['status'], 'ready')
         self.assertFalse(self.bot.unpause.is_set())
         self.assertEqual(self.bot.command_queue.qsize(), 3)
         self.bot.stm_link.send.assert_not_called()
         plans = [m.value for m in self.bot.android_queue.queue if m.cat == 'plan']
         self.assertEqual(plans, [{'id': 'abc', 'state': 'READY'}])
+
+    def test_revisit_starts_at_exact_five_cm_pose(self):
+        self.bot.current_location = {'x': 6, 'y': 5, 'd': 2, 'planner_x': 11, 'planner_y': 9}
+        self.bot.failed_attempt = False
+        self.bot.failed_obstacles[:] = ['1']
+        self.bot.request_algo = Mock(return_value=True)
+        self.run_commands('FIN')
+        self.assertEqual(self.bot.request_algo.call_args.args[1:], (5.5, 4.5, 2))
 
     def test_start_requires_matching_ready_route_and_does_not_recompute(self):
         data = self.prepare_route()

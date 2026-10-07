@@ -21,4 +21,8 @@ def parse_plan(result):
             pose["d"] not in (0, 2, 4, 6) or
             not (0 <= pose["x"] < 20 and 0 <= pose["y"] < 20)):
             raise ValueError("Algo returned an invalid command position")
+        if pose is not None and any(key in pose for key in ('planner_x', 'planner_y')):
+            if any(type(pose.get(key)) is not int or not 0 <= pose[key] < 40
+                   for key in ('planner_x', 'planner_y')):
+                raise ValueError("Algo returned an invalid 5 cm planner position")
     return list(zip(commands, poses))

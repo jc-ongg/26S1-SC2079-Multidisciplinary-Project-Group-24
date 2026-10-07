@@ -13,39 +13,20 @@ import laptop_start
 class LaptopStartTests(unittest.TestCase):
     def args(self, backend):
         return SimpleNamespace(python=sys.executable, cv_backend=backend,
-                               algo_port=8000, image_port=8001, movement_profile='original',
-                               reverse_calibration='original', forward_calibration='original')
+                               algo_port=8000, image_port=8001)
 
-    def test_combined_calibration_is_forwarded_only_to_algo(self):
-        args = self.args('trial')
-        args.forward_calibration = args.reverse_calibration = 'speed50-v2'
-        specs, _ = laptop_start.service_specs(args)
-        self.assertEqual(specs[0][3]['MDP_FORWARD_CALIBRATION'], 'speed50-v2')
-        self.assertEqual(specs[0][3]['MDP_REVERSE_CALIBRATION'], 'speed50-v2')
-        self.assertNotIn('MDP_FORWARD_CALIBRATION', specs[1][3])
+    def test_single_configuration_has_no_overlay_environment(self):
+        specs, _ = laptop_start.service_specs(self.args('trial'))
+        self.assertEqual(specs[0][3], {'ALGO_PORT': '8000'})
 
-    def test_forward_calibration_rejects_speed25_profile_before_spawn(self):
-        with patch.object(sys, 'argv', ['start', '--movement-profile', 'measured25',
-                                      '--forward-calibration', 'speed50-v2']), \
-                patch.object(laptop_start.subprocess, 'Popen') as spawn:
-            with self.assertRaises(SystemExit) as error:
-                laptop_start.main()
-            self.assertEqual(error.exception.code, 2)
-            spawn.assert_not_called()
-
-    def test_reverse_calibration_is_forwarded_only_to_algo(self):
-        args = self.args('trial')
-        args.reverse_calibration = 'speed50-v2'
-        specs, _ = laptop_start.service_specs(args)
-        self.assertEqual(specs[0][3]['MDP_REVERSE_CALIBRATION'], 'speed50-v2')
-        self.assertNotIn('MDP_REVERSE_CALIBRATION', specs[1][3])
-
-    def test_measured_profile_is_forwarded_only_to_algo(self):
-        args = self.args('trial')
-        args.movement_profile = 'measured25'
-        specs, _ = laptop_start.service_specs(args)
-        self.assertEqual(specs[0][3]['MDP_MOVEMENT_PROFILE'], 'measured25')
-        self.assertNotIn('MDP_MOVEMENT_PROFILE', specs[1][3])
+    def test_obsolete_profile_switches_are_rejected_before_spawn(self):
+        for flag in ['--movement-profile', '--forward-calibration', '--reverse-calibration']:
+            with patch.object(sys, 'argv', ['start', flag, 'original']), \
+                    patch.object(laptop_start.subprocess, 'Popen') as spawn:
+                with self.assertRaises(SystemExit) as error:
+                    laptop_start.main()
+                self.assertEqual(error.exception.code, 2)
+                spawn.assert_not_called()
 
     def test_trial_uses_explicit_fallback_and_port(self):
         specs, paths = laptop_start.service_specs(self.args('trial'))

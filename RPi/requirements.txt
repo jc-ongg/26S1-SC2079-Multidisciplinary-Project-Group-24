@@ -1,6 +1,3 @@
-colorzero==2.0
-gpiozero==1.6.2
-picamera==1.13
+# Current Task 1: stdlib Bluetooth and OS rpicam-still.
 pyserial==3.5
-PyBluez==0.23
-requests~=2.27.1
+requests>=2.27.1,<3

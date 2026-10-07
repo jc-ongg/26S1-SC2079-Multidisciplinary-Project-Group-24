@@ -1,10 +1,10 @@
 """Interactive Bluetooth loopback tester for the Android tablet.
 
-Run on the Pi:   python3 bt_echo.py
+Run on the Pi:   python3 tools/bt_echo.py
 
 Waits for the tablet to connect, then anything typed here is sent to the tablet
 and anything the tablet sends back is printed. Use it to prove the round trip
-works before running final_week_8.py.
+works before running task1_main.py.
 
 Type a message as either
     hello world            -> {"cat": "info", "value": "hello world"}
@@ -12,6 +12,8 @@ Type a message as either
 Ctrl-C or "quit" to stop.
 """
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import threading
 import time
 

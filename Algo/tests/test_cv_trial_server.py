@@ -75,7 +75,11 @@ class CVTrialTests(unittest.TestCase):
         response = self.client.get("/stitch")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.mimetype, "image/jpeg")
-        self.assertEqual(len(list(Path(self.folder.name).glob("*.jpg"))), 2)
+        self.assertEqual(len(list(Path(self.folder.name).glob("*.jpg"))), 3)
+        saved = Path(self.folder.name) / response.headers['X-Stitch-File']
+        self.assertTrue(saved.is_file())
+        with Image.open(saved) as stitched:
+            self.assertEqual(stitched.size, (480, 360))
 
     def test_unknown_model_labels_are_rejected(self):
         with self.assertRaises(ValueError):

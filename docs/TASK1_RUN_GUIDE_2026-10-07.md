@@ -1,5 +1,8 @@
 # Task 1 readiness and assessment run guide - 2026-10-07
 
+**Current movement setup:** [speed50 / 5 cm test setup](TASK1_GRID5_TEST.md) supersedes the
+old profile commands and planning benchmarks in this historical audit.
+
 **Pi deployment update:** the four runtime files were installed and verified
 on 2026-10-07; all 57 offline Pi tests passed on the actual Pi, and its parser
 accepted a real laptop route. The controller was left stopped. See
@@ -175,8 +178,8 @@ From the Windows repository root, after stopping any older laptop servers:
 .\Algo\.venv-cv-win\Scripts\python.exe -u RPi-services/laptop_start.py --python .\Algo\.venv-cv-win\Scripts\python.exe --cv-backend trial
 ```
 
-This uses original turns. Append only the calibration flags validated for the
-physical robot. Check `http://127.0.0.1:8000/status` for the loaded configuration
+This uses the standard speed50 / 5 cm test configuration. There are no movement
+profile switches. See [current setup and backups](TASK1_GRID5_TEST.md). Check `http://127.0.0.1:8000/status` for the loaded configuration
 and `http://127.0.0.1:8001/health` for CV. Keep the terminal open.
 
 On the Pi, after stopping the existing controller and confirming there is one

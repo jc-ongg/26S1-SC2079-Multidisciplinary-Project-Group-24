@@ -20,6 +20,8 @@ STM32/Release/
 **/runs/
 *.log
 logfile.txt
+/RPi/captures/
+/RPi/task2/KC_o1_auto_*
 
 # Per-machine Android/IDE state and build output.
 **/.gradle/

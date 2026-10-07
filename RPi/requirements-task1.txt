@@ -1,4 +1,0 @@
-# Current Task 1 uses stdlib Bluetooth and the OS rpicam-still executable.
-# requirements.txt is retained from the physical Pi for legacy scripts.
-pyserial==3.5
-requests>=2.27.1,<3

@@ -1,5 +1,9 @@
 # RPi Task 1 deployment - 2026-10-07
 
+**Later update:** [speed50 / 5 cm deployment and backups](TASK1_GRID5_TEST.md)
+supersedes this earlier four-file install. `task1_controller.py` is now the active
+controller, settings overrides are deployed, and route requests allow 180 seconds.
+
 The requested Task 1 source update is installed on `nat@192.168.50.5` in
 `/home/nat/SC2079-MDP/rpi`. No controller was running before or during deployment.
 The controller was left stopped. No motor commands, camera captures, Bluetooth
