@@ -17,8 +17,9 @@ Bluetooth uses stdlib sockets and the camera uses OS rpicam-still.
 MAP prepares the route before Start; matching READY enables BEGIN. Planning
 requests use (3,180) seconds for connection/read; the separate motor-completion
 watchdog stays60 seconds. The Pi rejects mismatched grid responses. Locations
-advance only after matching ACK. Turn geometry/padding and the 10 cm revisit
-coordinates match the pre-trial setup. The Ctrl-C shutdown fix remains installed.
+advance only after matching ACK. Turn geometry uses the 10 cm map; the laptop
+applies the latest measured speed-50 padding. Revisit coordinates remain on
+the same 10 cm grid. The Ctrl-C shutdown fix remains installed.
 
 Camera frames, including retries, go into captures/. Laptop images and saved
 montages stay in output/cv-trial/. Other robot controllers/serial monitors must
@@ -35,6 +36,7 @@ python3 -B tests/test_offline.py
 
 Tests mock hardware; Linux also exercises real Ctrl-C/worker/Manager shutdown.
 [Current setup and rollback backups](../docs/TASK1_ROLLBACK_2026-10-07.md)
+[Current measured turn settings and planner performance](../docs/TASK1_SETTINGS_2026-10-07.md)
 
 Photo policy: one initial photo plus one retry per visit, and at most one revisit
 pass (four photos total per revisited obstacle). Partial recognition and an

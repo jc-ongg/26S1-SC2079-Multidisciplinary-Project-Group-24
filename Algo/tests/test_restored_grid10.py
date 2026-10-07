@@ -14,10 +14,10 @@ from algo.algo import PathFinder
 
 VECTORS = ((0, 1), (1, 0), (0, -1), (-1, 0))
 GEOMETRY = {'FL': (2, 4), 'FR': (3, 4), 'BL': (3, 2), 'BR': (4, 3)}
-PADDING = {'FL': (5, 7), 'FR': (5, 3), 'BL': (1, 5), 'BR': (6, 8)}
+PADDING = {'FL': (5, 9), 'FR': (10, 2), 'BL': (1, 7), 'BR': (4, 9)}
 
 class RestoredGridTests(unittest.TestCase):
-    def test_previous_resolved_turn_commands_in_all_headings(self):
+    def test_measured_speed50_turn_commands_in_all_headings(self):
         self.assertEqual(consts.RECOMMENDED_MOTOR_SPEED, 50)
         for heading in range(0, 8, 2):
             fx, fy = VECTORS[heading // 2]

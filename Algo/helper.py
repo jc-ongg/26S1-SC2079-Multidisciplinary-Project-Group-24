@@ -70,8 +70,11 @@ def command_generator(states, obstacles, step_compression=True):
 
         # If previous state and current state are the same direction,
         if states[i].direction == states[i - 1].direction:
+            # A repeated pose represents a photo event, not a backward move.
+            if states[i].cmp_position(states[i - 1].x, states[i - 1].y):
+                pass
             # Forward - Must be (east facing AND x value increased) OR (north facing AND y value increased)
-            if (states[i].x > states[i - 1].x and states[i].direction == Direction.EAST) or (states[i].y > states[i - 1].y and states[i].direction == Direction.NORTH):
+            elif (states[i].x > states[i - 1].x and states[i].direction == Direction.EAST) or (states[i].y > states[i - 1].y and states[i].direction == Direction.NORTH):
                 commands.append("FW0{}".format(steps))
             # Forward - Must be (west facing AND x value decreased) OR (south facing AND y value decreased)
             elif (states[i].x < states[i-1].x and states[i].direction == Direction.WEST) or (

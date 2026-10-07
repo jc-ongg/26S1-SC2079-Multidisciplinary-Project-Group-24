@@ -1,5 +1,9 @@
 # Current Task 1 clearance: 40 cm
 
+**Later update:** measured turn padding and the faster planner are recorded in
+[current Task 1 settings](TASK1_SETTINGS_2026-10-07.md). The 40 cm turn threshold
+and arena-edge limits below remain active; the old compensation was replaced.
+
 Jacob requested returning turn clearance from 30 cm to 40 cm for the next test.
 The active setting is `Algo/consts.py: TURN_CLEARANCE_CM = 40`. The Pi launcher
 checks the same value at startup, and the laptop launcher prints 40 cm.

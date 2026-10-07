@@ -1,11 +1,13 @@
 # Task 1 algorithm API
 
-The current profile is **restored-speed50-grid10**. The previous 10 cm planner,
-turn geometry/padding and motor-command schedule are restored. The current
-turn clearance trial is 40 cm Manhattan distance. Straight checks
+The current profile is **restored-speed50-grid10**. The planner uses one grouped
+visit-order calculation and caches directed paths, including failures. Turn
+geometry remains on the 10 cm grid; padding follows the latest bare speed-50
+measurements. Turn clearance is 40 cm Manhattan distance. Straight checks
 and robot-centre arena limits (cells 1–18) are preserved. Motor speed stays 50.
 
 [Current clearance trial](../docs/TASK1_CLEARANCE40_2026-10-07.md)
+[Current measured turn settings and planner performance](../docs/TASK1_SETTINGS_2026-10-07.md)
 [Planner rollback and backups](../docs/TASK1_ROLLBACK_2026-10-07.md)
 [CV captures and montage](CV_TRIAL.md)
 

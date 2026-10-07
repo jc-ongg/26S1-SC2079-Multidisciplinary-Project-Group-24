@@ -1,4 +1,4 @@
-"""One restored Task 1 setup: previous speed50 turns, 10 cm cells."""
+"""One Task 1 setup: measured speed50 turns, 10 cm cells."""
 from enum import Enum
 
 MOVEMENT_PROFILE = "restored-speed50-grid10"
@@ -9,13 +9,19 @@ UNIT_TO_CM_MULTIPLIER = UNIT_TO_CM_MULTIPLIER_REVERSE = 10
 FORWARD_CALIBRATION = REVERSE_CALIBRATION = "speed50-v2"
 DIRECTIONAL_MOVEMENT = True
 
-# Exact resolved geometry/padding of the server running before the 5 cm trial.
+# Planner endpoints stay on the existing 10 cm grid (longitudinal, lateral).
 FORWARD_LEFT_LONGITUDINAL_OFFSET, FORWARD_LEFT_LATERAL_OFFSET = 2, 4
 FORWARD_RIGHT_LONGITUDINAL_OFFSET, FORWARD_RIGHT_LATERAL_OFFSET = 3, 4
 BACKWARD_LEFT_LONGITUDINAL_OFFSET, BACKWARD_LEFT_LATERAL_OFFSET = 3, 2
 BACKWARD_RIGHT_LONGITUDINAL_OFFSET, BACKWARD_RIGHT_LATERAL_OFFSET = 4, 3
-FORWARD_LEFT, FORWARD_RIGHT = (5, 7), (5, 3)
-REVERSE_LEFT, REVERSE_RIGHT = (1, 5), (6, 8)
+# Bare 90-degree turns measured at speed 50 on 2026-10-07:
+# FL: forward15/left31; FR: forward20.5/right38;
+# BL: back29.5/left13; BR: back36/right21 (all cm).
+# Straight padding BEFORE/AFTER the turn, in the same travel direction.
+# Whole-cm STM commands round 9.5 -> 10 and 0.5 -> 1, leaving 0.5 cm
+# extra longitudinal displacement on FR and BL.
+FORWARD_LEFT, FORWARD_RIGHT = (5, 9), (10, 2)
+REVERSE_LEFT, REVERSE_RIGHT = (1, 7), (4, 9)
 
 # User's current trial: restore 40 cm turn clearance; keep straight/edge rules.
 TURN_CLEARANCE_CM = 40

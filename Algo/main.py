@@ -181,6 +181,13 @@ def path_finding():
     i = 0
     for command in commands:
         if command.startswith("SNAP"):
+            # Consume a photo-only state without shifting later movement poses.
+            target_id = int(command[4:].split("_")[0])
+            if (i + 1 < len(optimal_path)
+                    and optimal_path[i + 1].screenshot_id == target_id
+                    and optimal_path[i + 1].is_eq(
+                        optimal_path[i].x, optimal_path[i].y, optimal_path[i].direction)):
+                i += 1
             continue
         if command.startswith("FIN"):
             continue

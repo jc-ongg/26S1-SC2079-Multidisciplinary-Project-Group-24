@@ -4,6 +4,7 @@ One active Task 1 setup: **speed 50, 10 cm planner/tablet grid, 40 cm turn clear
 Use `main` for shared work. Older experiments are archived and backed up.
 
 [Current clearance trial](docs/TASK1_CLEARANCE40_2026-10-07.md)
+[Current planner, measured turn padding and all settings](docs/TASK1_SETTINGS_2026-10-07.md)
 [Planner rollback and backups](docs/TASK1_ROLLBACK_2026-10-07.md)
 [Assessment checklist](docs/TASK1_RUN_GUIDE_2026-10-07.md)
 [Current photo retries and finish behavior](docs/TASK1_PHOTO_STOP_2026-10-07.md)
@@ -42,7 +43,9 @@ A successful request saves `stitched-<run hash>.jpg` there. Pi originals are
 under `/home/nat/SC2079-MDP/rpi/captures/`.
 
 Task 1 is `RPi/task1_main.py` -> `task1_controller.py`; `--manual` is a separate
-arrow test. The restored planner keeps the 180-second planning timeout and
+arrow test. The optimized planner uses one visit-order calculation and caches
+directed segments, including failures. Turn padding follows the latest bare
+speed-50 measurements. It keeps the 180-second planning timeout and
 working Ctrl-C shutdown. STM firmware and CV weights are unchanged.
 Git pushes do not deploy the Pi or install the tablet app.
 

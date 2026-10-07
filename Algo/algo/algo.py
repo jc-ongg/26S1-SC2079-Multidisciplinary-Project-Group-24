@@ -1,11 +1,10 @@
 import heapq
 import math
-import numpy as np
+from collections import deque
 from typing import List, Dict, Tuple
 from entities.Robot import Robot
 from entities.Entity import Obstacle, CellState, Grid
 from consts import *
-from python_tsp.exact import solve_tsp_dynamic_programming
 
 """
 Example of outputs are given along the way to help understand the different components.
@@ -53,15 +52,45 @@ class PathFinder:
         # Caching mechanisms for graph traversal
         self.route_cache = {}
         self.weight_cache = {}
+        self._neighbor_cache = {}
+
+    @staticmethod
+    def _pose_key(state):
+        """Geometry is independent of CellState identity and screenshot metadata."""
+        return state.x, state.y, int(state.direction)
+
+    @classmethod
+    def _segment_key(cls, start, end):
+        return cls._pose_key(start), cls._pose_key(end)
+
+    def _clear_caches(self):
+        self.route_cache.clear()
+        self.weight_cache.clear()
+        self._neighbor_cache.clear()
+
+    def _reachable_states(self, start):
+        """Find legal directed poses before enumerating camera combinations."""
+        start_key = self._pose_key(start)
+        reached = {start_key}
+        pending = deque([start_key])
+        while pending:
+            for x, y, direction, _ in self._fetch_neighbors(*pending.popleft()):
+                pose = (x, y, int(direction))
+                if pose not in reached:
+                    reached.add(pose)
+                    pending.append(pose)
+        return reached
 
     def insert_target(self, x: int, y: int, face: Direction, target_id: int):
         """Registers an obstacle into the internal grid."""
         target = Obstacle(x, y, face, target_id)
         self.arena.add_obstacle(target)
+        self._clear_caches()
 
     def clear_targets(self):
         """Wipes all obstacles from the current arena."""
         self.arena.reset_obstacles()
+        self._clear_caches()
 
     @staticmethod
     def get_distance(p1_x: int, p1_y: int, p2_x: int, p2_y: int, norm=1):
@@ -70,175 +99,82 @@ class PathFinder:
         return math.sqrt(dx**2 + dy**2) if norm == 2 else abs(dx) + abs(dy)
 
     def solve_mission(self, is_retry: bool) -> Tuple[List[CellState], float]:
+        """Choose camera poses and visit order in one subset dynamic program."""
+        start = self.agent.get_start_state()
+        reachable = self._reachable_states(start)
+        groups = [[state for state in group if self._pose_key(state) in reachable]
+                  for group in self.arena.get_view_obstacle_positions(is_retry)]
+        # Unreachable targets are omitted, but remain physical obstacles.
+        groups = [group for group in groups if group]
+        states = [start]
+        indices = []
+        for group in groups:
+            indices.append(list(range(len(states), len(states) + len(group))))
+            states.extend(group)
+        self._batch_calculate_segments(states)
+        order, cost = self._select_view_order(states, indices)
+
+        path = [CellState(start.x, start.y, start.direction)]
+        current = start
+        for index in order:
+            goal = states[index]
+            segment = self.route_cache[self._segment_key(current, goal)]
+            if segment is None:
+                raise ValueError("Selected route contains an unreachable segment")
+            # Keep a distinct photo event even when this pose needs no movement.
+            points = segment[1:] if len(segment) > 1 else segment
+            path.extend(CellState(x, y, direction) for x, y, direction in points)
+            path[-1].set_screenshot(goal.screenshot_id)
+            current = path[-1]
+        return path, cost
+
+    def _select_view_order(self, states, groups):
+        """Maximize targets visited, then minimize travel and camera penalties.
+
+        A state is (visited-obstacle mask, last camera pose). Each obstacle can
+        have several poses, but contributes exactly one visit to a route.
+        Unlike repeated TSP calls, all camera choices share one calculation.
         """
-        Determines the best sequence of obstacles to visit using TSP,
-        building the final path from cached A* segments.
-        """
-        best_overall_score = 100000000
-        final_sequence = []
-        # Find all valid vantage points for the given obstacles
-        vantage_groups = self.arena.get_view_obstacle_positions(is_retry)
-        """"
-        print(vantage_groups)
-            -> each nested list represents an obstacle's vantage points
-            -> screenshot id corresponds to obstacle id
-            [
-                [x: 10, y: 13, d: 4, screenshot: 7,
-                 x: 10, y: 14, d: 4, screenshot: 7,
-                 x: 11, y: 14, d: 4, screenshot: 7,
-                 x: 9, y: 14, d: 4, screenshot: 7],
-                [x: 12, y: 18, d: 2, screenshot: 3,
-                 x: 11, y: 18, d: 2, screenshot: 3,
-                 x: 11, y: 17, d: 2, screenshot: 3]
-            ]
-        """
+        size = len(states)
+        edges = [[1e9] * size for _ in states]
+        for start in range(size):
+            for end in range(1, size):
+                if start != end:
+                    edges[start][end] = self.weight_cache.get(
+                        self._segment_key(states[start], states[end]), 1e9)
 
-        # Iterate through combinations of obstacles to visit (bitmask-style)
-        for selection_mask in self._generate_bitmasks(len(vantage_groups)):
-            active_items = [self.agent.get_start_state()]
-            active_vantage_groups = []
+        costs = [{} for _ in range(1 << len(groups))]
+        costs[0][0] = 0
+        previous = {}
+        for mask, endings in enumerate(costs):
+            for last, cost in endings.items():
+                for group_index, goals in enumerate(groups):
+                    bit = 1 << group_index
+                    if mask & bit:
+                        continue
+                    next_mask = mask | bit
+                    for goal in goals:
+                        distance = edges[last][goal]
+                        if distance >= 1e9:
+                            continue
+                        candidate = cost + distance + states[goal].penalty
+                        if candidate < costs[next_mask].get(goal, float('inf')):
+                            costs[next_mask][goal] = candidate
+                            previous[(next_mask, goal)] = (mask, last)
 
-            for i, bit in enumerate(selection_mask):
-                if bit == '1':
-                    active_items.extend(vantage_groups[i])
-                    active_vantage_groups.append(vantage_groups[i])
-            """
-            active_items:
-                -> flat list that contains the robot's starting position and every possible viewing position for every selected obstacle.
-                -> serves as a master registry of all possible coordinates (nodes) for this specific iteration
-                -> used for A* searches between all possible pairs of states
-                -> eg. [Start State, Obstacle1_PosA, Obstacle1_PosB, Obstacle2_PosA, ...]
+        best = (0, 0)
+        best_count, best_cost = 0, 0
+        for mask, endings in enumerate(costs):
+            count = mask.bit_count()
+            for last, cost in endings.items():
+                if count > best_count or (count == best_count and cost < best_cost):
+                    best, best_count, best_cost = (mask, last), count, cost
 
-            active_vantage_groups:
-                -> a nested list where each sub-list contains only the vantage points for a single specific obstacle.
-                -> since the robot only needs to visit one vantage point per obstacle to take a picture, the algorithm needs to know which positions belong to which obstacle.
-                -> Structure: [[Obstacle1_PosA, Obstacle1_PosB], [Obstacle2_PosA, Obstacle2_PosB, Obstacle2_PosC]].
-            """
-
-            # Pre-calculate segment costs using A*
-            self._batch_calculate_segments(active_items)
-
-            possible_permutations = []
-            self._recursive_combinations(active_vantage_groups, 0, [], possible_permutations, [ITERATIONS])
-            """
-            possible_permutations:
-                -> generates all possible ways to pick one view position per obstacle.
-                -> Example:
-                    If 2 obstacles each have 3 view positions, it generates indices like:
-                    [0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2], ...
-                    representing "pick position 0 from obstacle 0 and position 0 from obstacle 1," etc.
-                    These combinations are used to try different ways the robot can view each obstacle, then picks the cheapest route via TSP.
-            """
-
-            for perm in possible_permutations:
-                # Build the cost matrix for the TSP solver
-                indices = [0]
-                offset = 1
-                static_penalty = 0
-
-                for i, group in enumerate(active_vantage_groups):
-                    chosen_idx = offset + perm[i]
-                    indices.append(chosen_idx)
-                    static_penalty += group[perm[i]].penalty
-                    offset += len(group)
-
-                """
-                    indices:
-                        -> stores the positions of the CellState objects in the flattened active_items list that the robot will visit in this specific iteration
-                        -> starts with 0 because active_items[0] is the robot's starting position
-                        -> eg. [0, 2, 5] means starting position, then 2nd and 5th items in active_items
-                        -> by this point, each obstacle will only be left with 1 vantage point
-
-                    group:
-                        -> each group contains all possible valid positions to view a specific obstacle
-
-                    chosen_idx:
-                        -> perm[i] indicates which specific vantage point was chosen for the current obstacle
-
-                    offset:
-                        -> since active_items is a flat list, the offset keeps track of where the next obstacle's group of points begins in that list
-
-                    static_penalty:
-                        -> each vantage point has a correspondng penalty defined in its CellState, it represents how "hard" it is to take a picture from that position
-                """
-
-                size = len(indices)
-                adj_matrix = np.zeros((size, size))
-                if DIRECTIONAL_MOVEMENT:
-                    for s in range(size):
-                        for e in range(size):
-                            if s != e:
-                                adj_matrix[s][e] = self.weight_cache.get(
-                                    (active_items[indices[s]], active_items[indices[e]]), 1e9)
-                else:
-                    for s in range(size - 1):
-                        for e in range(s + 1, size):
-                            start_node = active_items[indices[s]]
-                            end_node = active_items[indices[e]]
-                            dist = self.weight_cache.get((start_node, end_node), 1e9)
-                            adj_matrix[s][e] = adj_matrix[e][s] = dist
-
-                # Treat as an open path by zeroing return-to-start cost
-                adj_matrix[:, 0] = 0
-                # order represents the order of visiting obstacles
-                order, travel_dist = solve_tsp_dynamic_programming(adj_matrix)
-                # ... (inside solve_mission after travel_dist calculation)
-                if travel_dist + static_penalty < best_overall_score:
-                    # Start the path with the robot's initial state
-                    current_path = [active_items[0]]
-
-                    # Must track the ACTUAL current state of the robot to ensure the next segment starts exactly where the last one ended.
-                    actual_current_state = active_items[0]
-
-                    for k in range(len(order) - 1):
-                        # The next target state chosen by the TSP solver
-                        target_node = active_items[indices[order[k+1]]]
-
-                        # Retrieve the segment starting from our ACTUAL current position
-                        # to the next target. If it's missing, we run A* on the fly.
-                        if (actual_current_state, target_node) not in self.route_cache:
-                            self._run_astar(actual_current_state, target_node)
-
-                        segment = self.route_cache.get((actual_current_state, target_node))
-                        if segment is None:
-                            # A symmetric candidate cost can describe an edge
-                            # that A* cannot drive in this direction. Reject
-                            # this candidate before accepting its score/path.
-                            break
-
-                        # Add steps to the path (skip the first to avoid duplicates)
-                        for step in segment[1:]:
-                            new_state = CellState(step[0], step[1], step[2])
-                            current_path.append(new_state)
-
-                        # Mark the last state of this segment for a screenshot
-                        current_path[-1].set_screenshot(target_node.screenshot_id)
-
-                        # UPDATE the actual current state to be the end of this segment
-                        actual_current_state = current_path[-1]
-
-                    else:
-                        best_overall_score = travel_dist + static_penalty
-                        final_sequence = current_path
-
-                    """
-                    order:
-                        -> the optimized order of visiting the selected obstacles
-                        -> eg. [0, 2, 1, 3] means start -> obstacle at index 2 of indices -> obstacle at index 1 of indices -> ...
-
-                    current_path:
-                        -> the final stitched path the robot will take, composed of multiple A* segments
-
-                    segments:
-                        -> loops through the optimized order. for every pair of origin and target in that order, it retrieves the pre-calculated A* path from the route_cache
-                    Stitching Coordinates: It appends every coordinate step from the cached segment (skipping the first step to avoid duplicates) into the current_path as a new CellState.
-
-                    Marking Screenshots: At the end of each segment, it calls set_screenshot(target.screenshot_id) on the last CellState to mark that specific coordinate as the location where the robot must take a picture of the obstacle.
-                    """
-
-            if final_sequence: break # found a valid complete path, since we prioritize more obstacles, we can exit early as the further iterations would have less obstacles
-
-        return final_sequence, best_overall_score
+        order = []
+        while best != (0, 0):
+            order.append(best[1])
+            best = previous[best]
+        return order[::-1], best_cost
 
     def _get_proximity_cost(self, x: int, y: int) -> int:
         """Adds a penalty if the robot is too close to obstacle corners."""
@@ -249,6 +185,12 @@ class PathFinder:
         return 0
 
     def _fetch_neighbors(self, cur_x: int, cur_y: int, heading: Direction):
+        key = (cur_x, cur_y, int(heading))
+        if key not in self._neighbor_cache:
+            self._neighbor_cache[key] = tuple(self._compute_neighbors(cur_x, cur_y, heading))
+        return self._neighbor_cache[key]
+
+    def _compute_neighbors(self, cur_x: int, cur_y: int, heading: Direction):
         """Generates valid adjacent states including straight moves and turns."""
         adjacents = []
 
@@ -272,8 +214,6 @@ class PathFinder:
             if self.arena.reachable(nx, ny, turn=True) and self.arena.reachable(cur_x, cur_y, preTurn=True): #and self.arena.reachable((nx + cur_x)//2, (ny+cur_y)//2, during_turn=True):
                 cost = self._get_proximity_cost(nx, ny) + 10 # Base turn penalty
                 adjacents.append((nx, ny, ndir, cost))
-        if cur_x == 3 and cur_y == 12 and heading == Direction.NORTH:
-            print("DEBUG NEIGHBORS: {adjacents}".format(adjacents=adjacents))
         return adjacents
 
     def _batch_calculate_segments(self, states: List[CellState]):
@@ -286,9 +226,10 @@ class PathFinder:
 
     def _run_astar(self, start: CellState, goal: CellState):
         """Standard A* search using a priority queue."""
-        if (start, goal) in self.route_cache: return
+        segment_key = self._segment_key(start, goal)
+        if segment_key in self.route_cache: return
 
-        start_key = (start.x, start.y, start.direction)
+        start_key = self._pose_key(start)
         g_scores = {start_key: 0}
         pq = [(self.get_distance(start.x, start.y, goal.x, goal.y), start.x, start.y, start.direction)]
 
@@ -323,11 +264,16 @@ class PathFinder:
                     route[(nx, ny, nhead)] = (x, y, head)
                     heapq.heappush(pq, (f_score, nx, ny, nhead))
 
+        # Remember failed searches as well as successful ones.
+        self.route_cache[segment_key] = None
+        self.weight_cache[segment_key] = 1e9
+
     def _archive_path(self, s, e, route, total_cost):
         """Stores the result of a successful A* search."""
-        self.weight_cache[(s, e)] = total_cost
+        segment_key = self._segment_key(s, e)
+        self.weight_cache[segment_key] = total_cost
         if not DIRECTIONAL_MOVEMENT:
-            self.weight_cache[(e, s)] = total_cost
+            self.weight_cache[self._segment_key(e, s)] = total_cost
 
         coords = []
         curr = (e.x, e.y, e.direction)
@@ -336,26 +282,9 @@ class PathFinder:
             curr = route[curr]
         coords.append(curr)
 
-        self.route_cache[(s, e)] = coords[::-1]
+        self.route_cache[segment_key] = coords[::-1]
         if not DIRECTIONAL_MOVEMENT:
-            self.route_cache[(e, s)] = coords
-
-    @staticmethod
-    def _generate_bitmasks(n):
-        masks = [bin(i)[2:].zfill(n) for i in range(2**n)]
-        return sorted(masks, key=lambda x: x.count('1'), reverse=True)
-
-    @staticmethod
-    def _recursive_combinations(groups, idx, current, results, limit):
-        if idx == len(groups):
-            results.append(list(current))
-            return
-        if limit[0] <= 0: return
-        limit[0] -= 1
-        for i in range(len(groups[idx])):
-            current.append(i)
-            PathFinder._recursive_combinations(groups, idx + 1, current, results, limit)
-            current.pop()
+            self.route_cache[self._segment_key(e, s)] = coords
 
     def _map_turn_logic(self, x, y, h, left_front, right_front, left_rear, right_rear):
         # Helper to condense the 8 turning conditions from original algo.py
