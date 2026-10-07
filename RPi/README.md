@@ -35,3 +35,7 @@ python3 -B tests/test_offline.py
 
 Tests mock hardware; Linux also exercises real Ctrl-C/worker/Manager shutdown.
 [Current setup and rollback backups](../docs/TASK1_ROLLBACK_2026-10-07.md)
+
+Photo policy: one initial photo plus one retry per visit, and at most one revisit
+pass (four photos total per revisited obstacle). Partial recognition and an
+unavailable revisit now send finished normally. See [photo/stop update](../docs/TASK1_PHOTO_STOP_2026-10-07.md).

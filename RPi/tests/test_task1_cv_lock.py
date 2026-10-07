@@ -4,6 +4,7 @@ Only class definitions and literal timeout constants are compiled from the real
 controller. All camera, HTTP and STM calls use mocks; no real Manager is started.
 """
 import ast
+from collections import deque
 import json
 from pathlib import Path
 import queue
@@ -107,7 +108,7 @@ class Task1CVLockTests(unittest.TestCase):
         with self.assertRaises(StopIteration):
             self.bot.command_follower()
 
-    def test_seven_na_retries_finish_before_fin_and_release_once(self):
+    def test_one_photo_plus_one_retry_finish_before_fin_and_release_once(self):
         def predict(*args, **kwargs):
             self.assertTrue(self.bot.movement_lock.locked())
             # FIN has not even been dequeued while camera retries are active.
@@ -115,14 +116,89 @@ class Task1CVLockTests(unittest.TestCase):
             return self.response()
         self.http.post.side_effect = predict
         self.run_commands('SNAP1_C', 'FIN')
-        self.assertEqual(self.http.post.call_count, 7)
-        self.assertEqual(self.capture.call_count, 7)
+        self.assertEqual(self.http.post.call_count, 2)
+        self.assertEqual(self.capture.call_count, 2)
         self.assertEqual(self.bot.failed_obstacles, ['1'])
         self.assertEqual(self.bot.movement_lock.releases, 2)  # SNAP then FIN
         self.assertFalse(self.bot.movement_lock.locked())
         self.assertFalse(self.bot.motion_fault.is_set())
         statuses = [message.value for message in self.bot.android_queue.queue if message.cat == 'status']
         self.assertEqual(statuses, ['finished'])
+
+    def test_no_revisit_route_finishes_partial_run_without_motor_fault(self):
+        self.bot.failed_attempt = False
+        self.bot.failed_obstacles[:] = ['1']
+        self.bot.obstacles[2] = {'id': 2, 'x': 15, 'y': 15, 'd': 6}
+        self.bot.success_obstacles[:] = ['2']
+        reply = self.route_response()
+        reply.json.return_value['data']['stm_commands'] = ['FIN']
+        reply.json.return_value['data']['command_poses'] = [dict(self.bot.current_location)]
+        self.http.post.return_value = reply
+        self.run_commands({'command': 'FIN', 'pose': None, 'revision': 1})
+        self.assertEqual(self.bot.plan_state['status'], 'finished')
+        self.assertFalse(self.bot.unpause.is_set())
+        self.assertFalse(self.bot.motion_fault.is_set())
+        self.assertEqual(self.bot.movement_lock.releases, 1)
+        self.bot.stm_link.send.assert_not_called()
+        self.assertEqual([m.value for m in self.bot.android_queue.queue if m.cat == 'status'], ['finished'])
+        self.assertFalse(any(m.cat == 'plan' for m in self.bot.android_queue.queue))
+        self.assertTrue(any('1/2 targets recognized' in str(m.value) and 'Unrecognized obstacles: 1.' in str(m.value)
+                            for m in self.bot.android_queue.queue))
+        self.assertEqual(self.bot.rpi_action_queue.qsize(), 1)
+
+    def test_revisit_network_timeout_finishes_instead_of_latching_motor_fault(self):
+        self.bot.failed_attempt = False
+        self.bot.failed_obstacles[:] = ['1']
+        self.http.post.side_effect = TimeoutError('mock timeout')
+        self.run_commands({'command': 'FIN', 'pose': None, 'revision': 1})
+        self.assertEqual(self.bot.plan_state['status'], 'finished')
+        self.assertFalse(self.bot.motion_fault.is_set())
+        self.assertFalse(self.bot.unpause.is_set())
+        self.assertEqual(self.bot.movement_lock.releases, 1)
+
+    def test_failed_second_visit_still_finishes_after_four_total_photos(self):
+        initial = [{'command': command, 'pose': None, 'revision': 1} for command in ('SNAP1', 'FIN')]
+        pending = deque(initial)
+        def get_command():
+            if not pending:
+                raise StopIteration
+            return pending.popleft()
+        self.bot.command_queue.get.side_effect = get_command
+        self.bot.command_queue.get_nowait.side_effect = queue.Empty
+        self.bot.command_queue.put.side_effect = pending.append
+        def request(url, *args, **kwargs):
+            if url.endswith('/path'):
+                reply = self.route_response()
+                reply.json.return_value['data']['stm_commands'] = ['SNAP1', 'FIN']
+                reply.json.return_value['data']['command_poses'] = [dict(self.bot.current_location)] * 2
+                return reply
+            return self.response()
+        self.http.post.side_effect = request
+        with self.assertRaises(StopIteration):
+            self.bot.command_follower()
+        self.assertEqual(self.capture.call_count, 4)
+        self.assertEqual(sum(c.args[0].endswith('/path') for c in self.http.post.call_args_list), 1)
+        self.assertEqual(self.bot.failed_obstacles, ['1'])
+        self.assertEqual(self.bot.plan_state['status'], 'finished')
+        self.assertFalse(self.bot.motion_fault.is_set())
+        self.assertEqual(self.bot.movement_lock.releases, 4)
+        self.assertEqual([m.value for m in self.bot.android_queue.queue if m.cat == 'status'], ['finished'])
+
+    def test_stale_revisit_failure_cannot_finish_a_new_map(self):
+        self.bot.failed_attempt = False
+        self.bot.failed_obstacles[:] = ['1']
+        def fail(*args, **kwargs):
+            self.bot.plan_state.update(revision=2, status='planning')
+            raise TimeoutError('mock old request')
+        self.http.post.side_effect = fail
+        self.run_commands({'command': 'FIN', 'pose': None, 'revision': 1})
+        self.assertEqual(self.bot.plan_state['status'], 'planning')
+        self.assertFalse(any(m.value == 'finished' for m in self.bot.android_queue.queue))
+
+    def test_finish_helper_cannot_override_motor_fault(self):
+        self.bot.motion_fault.set()
+        self.bot._finish_run(1)
+        self.assertFalse(any(m.value == 'finished' for m in self.bot.android_queue.queue))
 
     def test_valid_recognition_updates_tablet_before_unlock(self):
         self.http.post.side_effect = [self.response(), self.response('LEFT', '39')]

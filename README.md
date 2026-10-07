@@ -5,6 +5,7 @@ Use `main` for shared work. Older experiments are archived and backed up.
 
 [Current setup, clearance, tests and backups](docs/TASK1_ROLLBACK_2026-10-07.md)
 [Assessment checklist](docs/TASK1_RUN_GUIDE_2026-10-07.md)
+[Current photo retries and finish behavior](docs/TASK1_PHOTO_STOP_2026-10-07.md)
 
 From this Windows repository root:
 

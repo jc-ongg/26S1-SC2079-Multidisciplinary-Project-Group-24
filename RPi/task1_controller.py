@@ -23,7 +23,7 @@ from path_plan import parse_plan
 # This is a completion watchdog, not an inter-command animation delay.
 ACK_TIMEOUT = 60
 ALGO_TIMEOUT = (3, 180)  # Connection timeout, then up to three minutes for planning.
-CAPTURE_ATTEMPTS = 7
+CAPTURE_ATTEMPTS = 2  # One initial photo plus one retry per visit.
 CAPTURE_TIMEOUT = 10
 IMAGE_API_TIMEOUT = (3, 10)
 CAPTURE_DIR = Path(__file__).resolve().parent / 'captures'
@@ -370,6 +370,32 @@ class RaspberryPi:
         self.current_location.update(pose)
         self.android_queue.put(AndroidMessage('location', dict(pose)))
 
+    def _finish_run(self, revision=None, reason=None):
+        """Finish after the last confirmed motor completion, including partial results.
+
+        The caller owns movement_lock and releases it. An image/revisit failure
+        is not a motor fault, and must still send the tablet its finished status.
+        """
+        with self.plan_guard:
+            if self.motion_fault.is_set() or (revision is not None and (
+                    revision != self.plan_state['revision'] or
+                    self.plan_state['status'] != 'running')):
+                return
+            self.unpause.clear()
+            self.plan_state['status'] = 'finished'
+        recognized = {str(oid) for oid in self.success_obstacles}
+        expected = {str(oid) for oid in self.obstacles.keys()}
+        missing = sorted(expected - recognized, key=int)
+        summary = f'Task 1 finished: {len(recognized & expected)}/{len(expected)} targets recognized.'
+        if missing:
+            summary += f' Unrecognized obstacles: {", ".join(missing)}.'
+        if reason:
+            summary += f' {reason}'
+        self.logger.info(summary)
+        self.android_queue.put(AndroidMessage('info', summary))
+        self.android_queue.put(AndroidMessage('status', 'finished'))
+        self.rpi_action_queue.put(PiAction(cat='stitch', value=''))
+
     def command_follower(self) -> None:
         """
         [Child Process]
@@ -481,21 +507,17 @@ class RaspberryPi:
                     prepared = self.request_algo({'obstacles': new_obstacle_list, 'mode': '0'},
                                                 self.current_location['x'], self.current_location['y'],
                                                 self.current_location['d'], retrying=True)
-                    self.movement_lock.release()
-                    if not prepared:
-                        self._pause_motion('Could not prepare the revisit route.')
-                        return
+                    try:
+                        if not prepared:
+                            self._finish_run(revision, 'No revisit route available; ending with the current results.')
+                    finally:
+                        self.movement_lock.release()
                     continue
 
-                self.unpause.clear()
-                with self.plan_guard:
-                    self.plan_state['status'] = 'finished'
-                self.movement_lock.release()
-                self.logger.info("Commands queue finished.")
-                self.android_queue.put(AndroidMessage(
-                    "info", "Commands queue finished."))
-                self.android_queue.put(AndroidMessage("status", "finished"))
-                self.rpi_action_queue.put(PiAction(cat="stitch", value=""))
+                try:
+                    self._finish_run(revision)
+                finally:
+                    self.movement_lock.release()
             else:
                 raise Exception(f"Unknown command: {command}")
 
@@ -653,9 +675,12 @@ class RaspberryPi:
             self.logger.error(f'Route preparation failed: {exc}')
             with self.plan_guard:
                 if revision == self.plan_state['revision']:
-                    self.plan_state['status'] = 'error'
-                    self.android_queue.put(AndroidMessage('plan', {
-                        'id': plan_id, 'state': 'ERROR', 'reason': str(exc)}))
+                    if retrying:
+                        self.android_queue.put(AndroidMessage('info', f'Revisit unavailable: {exc}'))
+                    else:
+                        self.plan_state['status'] = 'error'
+                        self.android_queue.put(AndroidMessage('plan', {
+                            'id': plan_id, 'state': 'ERROR', 'reason': str(exc)}))
             return False
 
         with self.plan_guard:
