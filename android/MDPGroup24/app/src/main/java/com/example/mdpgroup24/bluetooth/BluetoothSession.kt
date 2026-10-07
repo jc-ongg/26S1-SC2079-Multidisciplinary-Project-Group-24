@@ -81,13 +81,14 @@ object BluetoothSession :
             return false
         }
         recordChat(ChatHistory.Kind.SENT, "Map sent. Preparing Task 1 route.")
+        // Pi planning can take 180 s, plus connection and reply delivery time.
         Handler(Looper.getMainLooper()).postDelayed({
             if (preparation.requestId == id && preparation.state == Task1Preparation.State.PLANNING) {
                 preparation.receive("PLAN,$id,ERROR,No route confirmation. Check the Pi update and Algo connection; send map again.")
                 listeners.toList().forEach { it.onPreparationChanged() }
                 recordChat(ChatHistory.Kind.SYSTEM, preparation.error ?: "Route preparation timed out")
             }
-        }, 70_000L)
+        }, 190_000L)
         return true
     }
 

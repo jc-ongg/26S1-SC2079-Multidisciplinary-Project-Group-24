@@ -73,6 +73,9 @@ This is the complete current Android map. The RPi should treat it as an authorit
 MAP immediately requests `/path` on the laptop. The Pi validates `stm_commands`
 and the corresponding `command_poses`, queues them without moving, and replies
 with `PLAN,<map-request-id>,READY`. Android only accepts the latest pending ID.
+Valid partial routes (for example 7/8 targets) also send READY and enable Start;
+unreachable targets are skipped. Android waits 190 seconds for confirmation,
+allowing the Pi's 180-second planning response timeout plus delivery time.
 Edits, reset, saved-layout loading, manual movement and Bluetooth reconnection
 invalidate readiness. Send the map again before another run.
 
