@@ -1,6 +1,6 @@
 # Repository consolidation — 2026-10-01
 
-**Current setup:** [speed50 / 5 cm test configuration and Pi cleanup](TASK1_GRID5_TEST.md)
+**Current setup:** [restored 10 cm setup, reduced turn clearance and backups](TASK1_ROLLBACK_2026-10-07.md)
 supersedes the deployment/access status and source locations below. This document
 preserves the original consolidation history and recovery tags.
 

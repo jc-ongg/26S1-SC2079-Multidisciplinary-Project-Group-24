@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from algo.algo import PathFinder 
+from algo.algo import PathFinder
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from helper import command_generator
@@ -14,7 +14,6 @@ import io
 from threading import Lock
 import ast
 import consts
-from coordinates import to_planner, to_tablet_pose
 
 # Image recognition is NOT done here -- it runs on image-api (:8001) with
 # best_v11i_m.onnx, which reads the arrows and digits more reliably. This server
@@ -53,9 +52,10 @@ def status():
     """
     return jsonify({"status": "ok", "movement_profile": consts.MOVEMENT_PROFILE,
                     "recommended_motor_speed": consts.RECOMMENDED_MOTOR_SPEED,
-                    "grid_cell_cm": consts.GRID_CELL_CM,
-                    "input_cell_cm": consts.MAP_CELL_CM,
-                    "arena_cells": consts.WIDTH})
+                    "reverse_calibration": consts.REVERSE_CALIBRATION,
+                    "forward_calibration": consts.FORWARD_CALIBRATION,
+                    "grid_cell_cm": consts.GRID_CELL_CM, "input_cell_cm": consts.MAP_CELL_CM,
+                    "arena_cells": consts.WIDTH, "turn_clearance_cm": consts.TURN_CLEARANCE_CM})
 
 def convert_input(request):
     # Example : STATUS, RETRY_FALSE, OBSTACLE LIST, 4, 1; 11; 12; UP | 2; 4; 7; UP | 3; 14; 6; UP | 4; 6; 13; UP
@@ -83,7 +83,7 @@ def convert_input(request):
     elif check_input[0].strip() == "Task_2":
         print("Task 2 hardcoded input from RPI.")
         return consts.TASK_2
-    
+
     print("Converting input from frontend/android app.\n")
 
     input_array = andriod_input.split(",")
@@ -100,8 +100,8 @@ def convert_input(request):
     robot_info = input_array[3].strip().split(";")
     print(f'Robot Info: {robot_info}')
 
-    content["robot_x"] = float(robot_info[0])
-    content["robot_y"] = float(robot_info[1])
+    content["robot_x"] = int(robot_info[0])
+    content["robot_y"] = int(robot_info[1])
     content["robot_dir"] = face_map[robot_info[2].strip()]
 
     if input_array[2].strip() == "false":
@@ -132,7 +132,7 @@ def path_finding():
         content = request.json
     except:
         content = convert_input(request) """
-    
+
     content = convert_input(request)
 
     if not isinstance(content, dict) and content.startswith("CONTROL"):
@@ -149,17 +149,15 @@ def path_finding():
         })
     print("\nERROR CHECKING ==>>> Right before algorithm: ", content)
     # Get the obstacles, big_turn, retrying, robot_x, robot_y, and robot_direction from the json data
-    obstacles = [{**ob, 'x': to_planner(ob['x']), 'y': to_planner(ob['y'])}
-                 for ob in content['obstacles']]
+    obstacles = content['obstacles']
     # big_turn = int(content['big_turn'])
     retrying = content['retrying']
     robot_x, robot_y = content['robot_x'], content['robot_y']
-    robot_x, robot_y = to_planner(robot_x), to_planner(robot_y)
     robot_direction = int(content['robot_dir'])
     step_compression = content['step_compression']
 
     # Initialize PathFinder object with robot size of 20x20, bottom left corner of robot at (1,1), facing north, and whether to use a big turn or not.
-    path_finder = PathFinder(consts.WIDTH, consts.HEIGHT, robot_x, robot_y, robot_direction)
+    path_finder = PathFinder(20, 20, robot_x, robot_y, robot_direction)
 
     # Add each obstacle into the PathFinder. Each obstacle is defined by its x,y positions, its direction, and its id
     for ob in obstacles:
@@ -167,12 +165,10 @@ def path_finding():
     start = time.time()
     # Get shortest path
     optimal_path, distance = path_finder.solve_mission(is_retry=retrying)
-    if not optimal_path:
-        return jsonify(data=None, error='No reachable image route for this map'), 422
     print(f"Time taken to find shortest path using A* search: {time.time() - start}s")
     print(f"Distance to travel: {distance} units")
     print(f"Optimal path: \n{optimal_path}\n\n")
-    
+
     # Based on the shortest path, generate commands for the robot
     commands, unadjusted_stm_commands, stm_commands = command_generator(optimal_path, obstacles, step_compression)
     print(f"Commands generated: \n{commands}\n\n")
@@ -197,18 +193,15 @@ def path_finding():
         path_results.append(optimal_path[i].get_dict())
     from execution_plan import build_command_poses
     command_poses = build_command_poses(commands, path_results, stm_commands)
-    tablet_poses = [to_tablet_pose(pose) if pose is not None else None for pose in command_poses]
     return jsonify({
         "data": {
             'distance': distance,
-            'path': [to_tablet_pose(pose) for pose in path_results],
-            'planner_path': path_results,
-            'grid_cell_cm': consts.GRID_CELL_CM,
-            'input_cell_cm': consts.MAP_CELL_CM,
+            'path': path_results,
             'commands': commands,
             # 'stm_commands': unadjusted_stm_commands
             'stm_commands': stm_commands,
-            'command_poses': tablet_poses
+            'command_poses': command_poses,
+            'grid_cell_cm': consts.GRID_CELL_CM, 'input_cell_cm': consts.MAP_CELL_CM
         },
         "error": None
         })
@@ -307,7 +300,7 @@ def image_predict():
         for box in result.boxes:
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
-            
+
             # Skip if not in CLS_MAP (e.g. Bullseye)
             if cls_id not in CLS_MAP:
                 continue
@@ -344,7 +337,7 @@ def image_predict():
         "latency_ms": latency,
         "detections": detections
     })
-    
+
 @app.route('/animate', methods=['POST'])
 def animate():
     # Receive data and put it in the queue for the main thread

@@ -12,8 +12,7 @@ def is_valid(center_x: int, center_y: int):
     -------
     bool: True if valid, False otherwise
     """
-    maximum = (MAP_SIZE - 2) * MAP_TO_PLANNER
-    return MAP_TO_PLANNER <= center_x <= maximum and MAP_TO_PLANNER <= center_y <= maximum
+    return center_x > 0 and center_y > 0 and center_x < WIDTH - 1 and center_y < HEIGHT - 1
 
 def command_converter(movement):
     final_command_dict = {
@@ -38,18 +37,6 @@ def command_converter(movement):
         return final_command_dict[movement[:2]] + str(steps)
     else:
         return movement
-        
-
-def expand_motor_command(command):
-    """Padding values are physical cm, independent of the planner cell size."""
-    motor = command_converter(command)
-    if motor.startswith(('center', 'SNAP', 'FIN')):
-        return [motor]
-    steering, _, direction, _ = motor.split(',')
-    pads = {('left', 'forward'): FORWARD_LEFT, ('right', 'forward'): FORWARD_RIGHT,
-            ('left', 'reverse'): REVERSE_LEFT, ('right', 'reverse'): REVERSE_RIGHT}[(steering, direction)]
-    return ([f'center,0,{direction},{pads[0]}'] if pads[0] else []) + [motor] + (
-        [f'center,0,{direction},{pads[1]}'] if pads[1] else [])
 
 
 def command_generator(states, obstacles, step_compression=True):
@@ -73,7 +60,7 @@ def command_generator(states, obstacles, step_compression=True):
 
     # Convert the list of obstacles into a dictionary with key as the obstacle id and value as the obstacle
     obstacles_dict = {ob['id']: ob for ob in obstacles}
-    
+
     # Initialize commands list
     commands = []
 
@@ -84,10 +71,7 @@ def command_generator(states, obstacles, step_compression=True):
         # If previous state and current state are the same direction,
         if states[i].direction == states[i - 1].direction:
             # Forward - Must be (east facing AND x value increased) OR (north facing AND y value increased)
-            if states[i].x == states[i - 1].x and states[i].y == states[i - 1].y:
-                # Two targets may share a view pose: capture both without motion.
-                commands.append("FW00")
-            elif (states[i].x > states[i - 1].x and states[i].direction == Direction.EAST) or (states[i].y > states[i - 1].y and states[i].direction == Direction.NORTH):
+            if (states[i].x > states[i - 1].x and states[i].direction == Direction.EAST) or (states[i].y > states[i - 1].y and states[i].direction == Direction.NORTH):
                 commands.append("FW0{}".format(steps))
             # Forward - Must be (west facing AND x value decreased) OR (south facing AND y value decreased)
             elif (states[i].x < states[i-1].x and states[i].direction == Direction.WEST) or (
@@ -113,7 +97,7 @@ def command_generator(states, obstacles, step_compression=True):
                     else:
                         commands.append(f"SNAP{states[i].screenshot_id}") """
                     commands.append(f"SNAP{states[i].screenshot_id}")
-                
+
                 # Obstacle facing EAST, robot facing WEST
                 elif current_ob_dict['d'] == 2 and current_robot_position.direction == 6:
                     """ if current_ob_dict['y'] > current_robot_position.y:
@@ -137,7 +121,7 @@ def command_generator(states, obstacles, step_compression=True):
                     else:
                         commands.append(f"SNAP{states[i].screenshot_id}") """
                     commands.append(f"SNAP{states[i].screenshot_id}")
-                    
+
 
                 # Obstacle facing SOUTH, robot facing NORTH
                 elif current_ob_dict['d'] == 4 and current_robot_position.direction == 0:
@@ -257,7 +241,7 @@ def command_generator(states, obstacles, step_compression=True):
                     commands.append(f"SNAP{states[i].screenshot_id}_R")
                 else:
                     commands.append(f"SNAP{states[i].screenshot_id}")
-            
+
             # Obstacle facing EAST, robot facing WEST
             elif current_ob_dict['d'] == 2 and current_robot_position.direction == 6:
                 if current_ob_dict['y'] > current_robot_position.y:
@@ -292,7 +276,7 @@ def command_generator(states, obstacles, step_compression=True):
                     commands.append(f"SNAP{states[i].screenshot_id}")
 
     # Final command is the stop command (FIN)
-    commands.append("FIN")  
+    commands.append("FIN")
 
     # Compress commands if there are consecutive forward or backward commands
     compressed_commands = commands
@@ -323,15 +307,99 @@ def command_generator(states, obstacles, step_compression=True):
                 else:
                     compressed_commands[-1] = "FW{}".format(steps + 1)
                     continue
-            
+
             # Otherwise, just add as usual
             compressed_commands.append(commands[i])
-    
+
     # Convert the command into STM format
     stm_commands = [command_converter(command) for command in compressed_commands]
-    from motor_schedule import coalesce
-    expanded = [(motor, None) for command in compressed_commands
-                for motor in expand_motor_command(command)]
-    adjusted_stm_commands = [command for command, _ in coalesce(expanded)]
+    adjusted_stm_commands = []
+    for cmd in stm_commands:
+        if cmd.startswith("center") or cmd.startswith("SNAP") or cmd.startswith("FIN"):
+            adjusted_stm_commands.append(cmd)
+        else:
+            if "right" in cmd and "forward" in cmd:
+                adjusted_stm_commands.append(f"center,0,forward,{int(FORWARD_RIGHT[0] / 10 * UNIT_TO_CM_MULTIPLIER)}")
+                adjusted_stm_commands.append(cmd)
+                adjusted_stm_commands.append(f"center,0,forward,{int(FORWARD_RIGHT[1] / 10 * UNIT_TO_CM_MULTIPLIER)}")
+            elif "left" in cmd and "forward" in cmd:
+                adjusted_stm_commands.append(f"center,0,forward,{int(FORWARD_LEFT[0] / 10 * UNIT_TO_CM_MULTIPLIER)}")
+                adjusted_stm_commands.append(cmd)
+                adjusted_stm_commands.append(f"center,0,forward,{int(FORWARD_LEFT[1] / 10 * UNIT_TO_CM_MULTIPLIER)}")
+            elif "right" in cmd and "reverse" in cmd:
+                adjusted_stm_commands.append(f"center,0,reverse,{int(REVERSE_RIGHT[0] / 10 * UNIT_TO_CM_MULTIPLIER_REVERSE)}")
+                adjusted_stm_commands.append(cmd)
+                adjusted_stm_commands.append(f"center,0,reverse,{int(REVERSE_RIGHT[1] / 10 * UNIT_TO_CM_MULTIPLIER_REVERSE)}")
+            elif "left" in cmd and "reverse" in cmd:
+                adjusted_stm_commands.append(f"center,0,reverse,{int(REVERSE_LEFT[0] / 10 * UNIT_TO_CM_MULTIPLIER_REVERSE)}")
+                adjusted_stm_commands.append(cmd)
+                adjusted_stm_commands.append(f"center,0,reverse,{int(REVERSE_LEFT[1] / 10 * UNIT_TO_CM_MULTIPLIER_REVERSE)}")
+
+
+    # remove empty commands
+    new_adjusted_cmds = []
+    for cmd in adjusted_stm_commands:
+        if cmd.startswith("SNAP") or cmd.startswith("FIN"):
+            new_adjusted_cmds.append(cmd)
+            continue
+
+        individual_cmd = cmd.split(",")
+        if individual_cmd[1] == "0" and individual_cmd[3] == "0":
+            continue
+        else:
+            new_adjusted_cmds.append(cmd)
+
+
+    adjusted_stm_commands = []
+
+    print("\nBefore removing redundant commands: ", new_adjusted_cmds)
+
+    prev_cmd = None
+
+    for cmd in new_adjusted_cmds:
+
+        # SNAP / FIN always pass through
+        if cmd.startswith("SNAP") or cmd.startswith("FIN"):
+            if prev_cmd:
+                adjusted_stm_commands.append(",".join(prev_cmd))
+                prev_cmd = None
+            adjusted_stm_commands.append(cmd)
+            continue
+
+        curr = cmd.split(",")
+
+        # if first command
+        if prev_cmd is None:
+            prev_cmd = curr
+            continue
+
+        # check if both are straight movement commands
+        if (
+            curr[0] == "center"
+            and prev_cmd[0] == "center"
+            and curr[2] != prev_cmd[2]   # opposite direction
+        ):
+
+            curr_dist = int(curr[3])
+            prev_dist = int(prev_cmd[3])
+
+            diff = abs(curr_dist - prev_dist)
+
+            if diff == 0:
+                prev_cmd = None
+            else:
+                direction = curr[2] if curr_dist > prev_dist else prev_cmd[2]
+                prev_cmd = ["center", "0", direction, str(diff)]
+
+        else:
+            # commands cannot merge
+            adjusted_stm_commands.append(",".join(prev_cmd))
+            prev_cmd = curr
+
+    # append last remaining command
+    if prev_cmd:
+        adjusted_stm_commands.append(",".join(prev_cmd))
+
+    print("\nAfter removing redundant commands: ", adjusted_stm_commands, "\n")
 
     return compressed_commands, stm_commands, adjusted_stm_commands

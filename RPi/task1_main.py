@@ -11,9 +11,9 @@ def check_profile():
     from settings import API_IP, API_PORT
     with urllib.request.urlopen(f"http://{API_IP}:{API_PORT}/status", timeout=5) as response:
         status = json.load(response)
-    required = {'status': 'ok', 'movement_profile': 'turn-guide-speed50-grid5',
-                'recommended_motor_speed': 50, 'grid_cell_cm': 5,
-                'input_cell_cm': 10, 'arena_cells': 40}
+    required = {'status': 'ok', 'movement_profile': 'restored-speed50-grid10',
+                'recommended_motor_speed': 50, 'grid_cell_cm': 10,
+                'input_cell_cm': 10, 'arena_cells': 20, 'turn_clearance_cm': 30}
     for key, expected in required.items():
         if status.get(key) != expected:
             raise RuntimeError(f"Algo {key} is {status.get(key)!r}; expected {expected!r}. Restart the standard laptop launcher.")
@@ -36,7 +36,7 @@ def main():
         from task1_controller import RaspberryPi
         robot = RaspberryPi()
         robot.stm_link.speed = speed
-        print("Task 1: motor speed 50; 5 cm planner; 10 cm tablet map", flush=True)
+        print("Task 1: motor speed 50; 10 cm planner/tablet map; 30 cm turn clearance", flush=True)
         robot.start()
 
 

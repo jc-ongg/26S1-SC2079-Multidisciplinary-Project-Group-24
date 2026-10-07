@@ -1,19 +1,10 @@
-# SC2079 MDP — Group 24
+# SC2079 MDP - Group 24
 
-One active Task 1 test setup: **motor speed 50, 5 cm planner, 10 cm tablet map**.
-Use `main` for shared work. Older calibration sources and RPi experiments are
-under `Algo/archive/` and `RPi/archive/`. They are historical references.
+One active Task 1 setup: **speed 50, 10 cm planner/tablet grid, 30 cm turn clearance**.
+Use `main` for shared work. Older experiments are archived and backed up.
 
-[Current test procedure, backups and changes](docs/TASK1_GRID5_TEST.md)
-[Assessment requirements and checklist](docs/TASK1_RUN_GUIDE_2026-10-07.md)
-
-| Component | Entry point | Location |
-| --- | --- | --- |
-| Android | `android/MDPGroup24` in Android Studio | Tablet |
-| Laptop Algo + CV | `RPi-services/laptop_start.py` | Laptop; ports 8000 / 8001 |
-| Task 1 | `RPi/task1_main.py` → `task1_controller.py` | Pi: `/home/nat/SC2079-MDP/rpi` |
-| Manual arrows | `task1_main.py --manual` | Pi; separate from Task 1 |
-| STM32 | Existing flashed firmware | Robot |
+[Current setup, clearance, tests and backups](docs/TASK1_ROLLBACK_2026-10-07.md)
+[Assessment checklist](docs/TASK1_RUN_GUIDE_2026-10-07.md)
 
 From this Windows repository root:
 
@@ -21,10 +12,9 @@ From this Windows repository root:
 .\Algo\.venv-cv-win\Scripts\python.exe -u RPi-services/laptop_start.py --python .\Algo\.venv-cv-win\Scripts\python.exe
 ```
 
-The launcher uses the existing `best.pt` CV model, refuses occupied ports, and
-prints the Wi-Fi address for the Pi. Add `--check` for a read-only health check.
-There are no movement/calibration switches. Changing source does not reload a
-running server. Stop its existing launcher before starting another.
+The launcher starts Algo8000 and the existing best.pt CV detector8001, refuses
+occupied ports, and prints the laptop Wi-Fi address. `--check` starts nothing.
+There are no movement profile switches. Source changes require a service restart.
 
 On the Pi, with other robot controllers/serial monitors stopped:
 
@@ -33,23 +23,24 @@ cd /home/nat/SC2079-MDP/rpi
 LAPTOP_IP=192.168.50.181 python3 -u task1_main.py
 ```
 
-Use the laptop's actual hotspot Wi-Fi address. Connect the updated tablet app,
-enter the map, press **Send Map**, inspect route coverage, wait for **READY**,
-then press **Start** when ready to run. The professor allows calculation during
-preparation. Preparation overtime still uses the Task 1 runtime allowance.
+Use the laptop's actual hotspot IP. Connect Android, enter/resend the map,
+check **8/8** for the tested layout, wait for **READY**, then **Start**.
+No tablet reflash is needed for the rollback. Android stays on 10 cm coordinates.
 
-The tablet map remains 20 × 20 at 10 cm. Algo converts to a 40 × 40 internal
-5 cm grid covering the same arena. The tablet icon shows rounded planned poses
-after matching motor completion; this is not measured real-time odometry.
+Robot-centre arena margins stay at cells **1-18**. Only the turn-clearance
+threshold was reduced from 40 cm to 30 cm Manhattan distance. Straight checks
+are preserved. Route generation includes all eight targets on the tested map;
+physical clearance still requires a trial. The tablet icon advances to planned
+poses after matching motor completion; it is not continuous measured odometry.
 
-Laptop images: `output/cv-trial/`. Open `http://127.0.0.1:8001/stitch` for the
-current run montage; it also saves `stitched-<run hash>.jpg` there. Pi captures
-are under `/home/nat/SC2079-MDP/rpi/captures/`.
+Images: `output/cv-trial/`; open `http://127.0.0.1:8001/stitch` for the current run.
+A successful request saves `stitched-<run hash>.jpg` there. Pi originals are
+under `/home/nat/SC2079-MDP/rpi/captures/`.
 
-GitHub updates do not deploy the Pi or install the Android app. Physical
-movement accuracy and tablet installation still require an integration test.
-
-Offline software checks:
+Task 1 is `RPi/task1_main.py` -> `task1_controller.py`; `--manual` is a separate
+arrow test. The restored planner keeps the 180-second planning timeout and
+working Ctrl-C shutdown. STM firmware and CV weights are unchanged.
+Git pushes do not deploy the Pi or install the tablet app.
 
 ```powershell
 .\Algo\.venv-cv-win\Scripts\python.exe -B RPi/tests/test_offline.py
@@ -57,4 +48,4 @@ Offline software checks:
 .\Algo\.venv-cv-win\Scripts\python.exe -B -m unittest discover -s RPi-services/tests -v
 ```
 
-Use the curated Pi suite; archived scripts can contain live motor commands.
+Use the curated Pi suite; archived scripts may issue live motor commands.

@@ -1,5 +1,7 @@
 # Task 1 readiness and assessment run guide - 2026-10-07
 
+**Superseded:** use the [restored 10 cm planner with 30 cm turn clearance](TASK1_ROLLBACK_2026-10-07.md) for the current setup. The 5 cm trial is backed up.
+
 **Current movement setup:** [speed50 / 5 cm test setup](TASK1_GRID5_TEST.md) supersedes the
 old profile commands and planning benchmarks in this historical audit.
 

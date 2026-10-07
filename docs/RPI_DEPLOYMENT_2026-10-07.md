@@ -1,6 +1,6 @@
 # RPi Task 1 deployment - 2026-10-07
 
-**Later update:** [speed50 / 5 cm deployment and backups](TASK1_GRID5_TEST.md)
+**Later update:** [restored 10 cm deployment and backups](TASK1_ROLLBACK_2026-10-07.md)
 supersedes this earlier four-file install. `task1_controller.py` is now the active
 controller, settings overrides are deployed, and route requests allow 180 seconds.
 

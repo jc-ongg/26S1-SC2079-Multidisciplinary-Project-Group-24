@@ -248,6 +248,7 @@ class Task1CVLockTests(unittest.TestCase):
         response = Mock()
         response.status_code = 200
         response.json.return_value = {'data': {
+            'grid_cell_cm': 10, 'input_cell_cm': 10,
             'stm_commands': ['center,0,forward,10', 'SNAP1', 'FIN'],
             'command_poses': [{'x': 1, 'y': 2, 'd': 0}] * 3}, 'error': None}
         return response
@@ -276,13 +277,12 @@ class Task1CVLockTests(unittest.TestCase):
         plans = [m.value for m in self.bot.android_queue.queue if m.cat == 'plan']
         self.assertEqual(plans, [{'id': 'abc', 'state': 'READY'}])
 
-    def test_revisit_starts_at_exact_five_cm_pose(self):
-        self.bot.current_location = {'x': 6, 'y': 5, 'd': 2, 'planner_x': 11, 'planner_y': 9}
-        self.bot.failed_attempt = False
-        self.bot.failed_obstacles[:] = ['1']
-        self.bot.request_algo = Mock(return_value=True)
-        self.run_commands('FIN')
-        self.assertEqual(self.bot.request_algo.call_args.args[1:], (5.5, 4.5, 2))
+    def test_wrong_grid_reply_does_not_enable_start(self):
+        data = self.prepare_route()
+        self.http.post.return_value.json.return_value['data']['grid_cell_cm'] = 5
+        self.assertFalse(self.bot.request_algo(data))
+        self.assertEqual(self.bot.plan_state['status'], 'error')
+        self.assertTrue(self.bot.command_queue.empty())
 
     def test_start_requires_matching_ready_route_and_does_not_recompute(self):
         data = self.prepare_route()

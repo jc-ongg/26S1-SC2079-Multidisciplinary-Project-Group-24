@@ -13,9 +13,9 @@ import task1_main
 
 class Task1LauncherTests(unittest.TestCase):
     def status_reply(self, **overrides):
-        status = {'status': 'ok', 'movement_profile': 'turn-guide-speed50-grid5',
-                  'recommended_motor_speed': 50, 'grid_cell_cm': 5,
-                  'input_cell_cm': 10, 'arena_cells': 40}
+        status = {'status': 'ok', 'movement_profile': 'restored-speed50-grid10',
+                  'recommended_motor_speed': 50, 'grid_cell_cm': 10,
+                  'input_cell_cm': 10, 'arena_cells': 20, 'turn_clearance_cm': 30}
         status.update(overrides)
         return io.BytesIO(json.dumps(status).encode())
 
@@ -27,8 +27,9 @@ class Task1LauncherTests(unittest.TestCase):
 
     def test_mismatched_profile_grid_speed_and_missing_status_block_hardware(self):
         for overrides in [{'movement_profile': 'original'}, {'movement_profile': None},
-                          {'recommended_motor_speed': 25}, {'grid_cell_cm': 10},
-                          {'input_cell_cm': 5}, {'arena_cells': 20}, {'status': 'error'}]:
+                          {'recommended_motor_speed': 25}, {'grid_cell_cm': 5},
+                          {'input_cell_cm': 5}, {'arena_cells': 40},
+                          {'turn_clearance_cm': 40}, {'status': 'error'}]:
             robot = Mock()
             with patch.object(sys, 'argv', ['task1_main.py']), \
                     patch.dict(sys.modules, {'settings': SimpleNamespace(API_IP='127.0.0.1', API_PORT=8000),

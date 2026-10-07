@@ -1,5 +1,6 @@
 from typing import List
-from consts import Direction, EXPANDED_CELL, SCREENSHOT_COST, MAP_TO_PLANNER
+from consts import (Direction, EXPANDED_CELL, SCREENSHOT_COST, GRID_CELL_CM,
+                    TURN_CLEARANCE_CM, STRAIGHT_AXIS_CLEARANCE_CM, STRAIGHT_MANHATTAN_CLEARANCE_CM)
 from helper import is_valid
 
 
@@ -13,12 +14,6 @@ class CellState:
         # If screenshot_od != -1, the snapshot is taken at that position is for the obstacle with id = screenshot_id
         self.screenshot_id = screenshot_id
         self.penalty = penalty  # Penalty for the view point of taking picture
-
-    def __hash__(self):
-        return hash((self.x, self.y, self.direction))
-
-    def __eq__(self, other):
-        return isinstance(other, CellState) and (self.x, self.y, self.direction) == (other.x, other.y, other.direction)
 
     def cmp_position(self, x, y) -> bool:
         """Compare given (x,y) position with cell state's position
@@ -84,21 +79,206 @@ class Obstacle(CellState):
         return self.x == other.x and self.y == other.y and self.direction == other.direction
 
     def get_view_state(self, retrying) -> List[CellState]:
-        vectors = {Direction.NORTH: (0, 1), Direction.EAST: (1, 0),
-                   Direction.SOUTH: (0, -1), Direction.WEST: (-1, 0)}
-        if self.direction not in vectors:
-            return []
-        dx, dy = vectors[self.direction]
-        side_x, side_y = (1, 0) if dx == 0 else (0, 1)
-        facing = Direction((int(self.direction) + 4) % 8)
-        choices = [(4, 0, 0), (5, 0, 0)] if retrying else [(3, 0, 5 * MAP_TO_PLANNER), (4, 0, 0)]
-        choices += [(4, 1, SCREENSHOT_COST), (4, -1, SCREENSHOT_COST)]
+        """Constructs the list of CellStates from which the robot can view the symbol on the obstacle
+
+        Returns:
+            List[CellState]: Valid cell states where robot can be positioned to view the symbol on the obstacle
+        """
         cells = []
-        for distance, lateral, penalty in choices:
-            x = self.x + (dx * distance + side_x * lateral) * MAP_TO_PLANNER
-            y = self.y + (dy * distance + side_y * lateral) * MAP_TO_PLANNER
-            if is_valid(x, y):
-                cells.append(CellState(x, y, facing, self.obstacle_id, penalty))
+
+        # If the obstacle is facing north, then robot's cell state must be facing south
+        if self.direction == Direction.NORTH:
+            if retrying == False:
+                # Or (x, y + 3)
+                if is_valid(self.x, self.y + 1 + EXPANDED_CELL * 2):
+                    cells.append(CellState(
+                        self.x, self.y + 1 + EXPANDED_CELL * 2, Direction.SOUTH, self.obstacle_id, 5)) # ZY: why is the penalty 5 here?
+                # Or (x, y + 4)
+                if is_valid(self.x, self.y + 2 + EXPANDED_CELL * 2):
+                    cells.append(CellState(
+                        self.x, self.y + 2 + EXPANDED_CELL * 2, Direction.SOUTH, self.obstacle_id, 0)) # ZY: why is the penalty 0 here?
+
+                # Or (x + 1, y + 3)
+                # if is_valid(self.x + 1, self.y + 1 + EXPANDED_CELL * 2):
+                #     cells.append(CellState(self.x + 1, self.y + 1 + EXPANDED_CELL * 2, Direction.SOUTH, self.obstacle_id, SCREENSHOT_COST*10))
+                # # Or (x - 1, y + 3)
+                # if is_valid(self.x - 1, self.y + 1 + EXPANDED_CELL * 2):
+                #     cells.append(CellState(self.x - 1, self.y + 1 + EXPANDED_CELL * 2, Direction.SOUTH, self.obstacle_id, SCREENSHOT_COST*10))
+
+                # Or (x + 1, y + 4)
+                if is_valid(self.x + 1, self.y + 2 + EXPANDED_CELL * 2):
+                    cells.append(CellState(self.x + 1, self.y + 2 + EXPANDED_CELL *
+                                 2, Direction.SOUTH, self.obstacle_id, SCREENSHOT_COST))
+                # Or (x - 1, y + 4)
+                if is_valid(self.x - 1, self.y + 2 + EXPANDED_CELL * 2):
+                    cells.append(CellState(self.x - 1, self.y + 2 + EXPANDED_CELL *
+                                 2, Direction.SOUTH, self.obstacle_id, SCREENSHOT_COST))
+
+            elif retrying == True:
+                # Or (x, y + 4)
+                if is_valid(self.x, self.y + 2 + EXPANDED_CELL * 2):
+                    cells.append(CellState(
+                        self.x, self.y + 2 + EXPANDED_CELL * 2, Direction.SOUTH, self.obstacle_id, 0))
+                # Or (x, y + 5)
+                if is_valid(self.x, self.y + 3 + EXPANDED_CELL * 2):
+                    cells.append(CellState(
+                        self.x, self.y + 3 + EXPANDED_CELL * 2, Direction.SOUTH, self.obstacle_id, 0))
+                # Or (x + 1, y + 4)
+                if is_valid(self.x + 1, self.y + 2 + EXPANDED_CELL * 2):
+                    cells.append(CellState(self.x + 1, self.y + 2 + EXPANDED_CELL *
+                                 2, Direction.SOUTH, self.obstacle_id, SCREENSHOT_COST))
+                # Or (x - 1, y + 4)
+                if is_valid(self.x - 1, self.y + 2 + EXPANDED_CELL * 2):
+                    cells.append(CellState(self.x - 1, self.y + 2 + EXPANDED_CELL *
+                                 2, Direction.SOUTH, self.obstacle_id, SCREENSHOT_COST))
+
+        # If obstacle is facing south, then robot's cell state must be facing north
+        elif self.direction == Direction.SOUTH:
+
+            if retrying == False:
+                # Or (x, y - 3)
+                if is_valid(self.x, self.y - 1 - EXPANDED_CELL * 2):
+                    cells.append(CellState(
+                        self.x, self.y - 1 - EXPANDED_CELL * 2, Direction.NORTH, self.obstacle_id, 5))
+                # Or (x, y - 4)
+                if is_valid(self.x, self.y - 2 - EXPANDED_CELL * 2):
+                    cells.append(CellState(
+                        self.x, self.y - 2 - EXPANDED_CELL * 2, Direction.NORTH, self.obstacle_id, 0))
+
+                # Or (x + 1, y - 3)
+                # if is_valid(self.x + 1, self.y - 1 - EXPANDED_CELL * 2):
+                #     cells.append(CellState(self.x + 1, self.y - 1 - EXPANDED_CELL * 2, Direction.NORTH, self.obstacle_id, SCREENSHOT_COST*10))
+                # # Or (x - 1, y - 3)
+                # if is_valid(self.x - 1, self.y - 1 - EXPANDED_CELL * 2):
+                #     cells.append(CellState(self.x - 1, self.y - 1 - EXPANDED_CELL * 2, Direction.NORTH, self.obstacle_id, SCREENSHOT_COST*10))
+
+                # Or (x + 1, y - 4)
+                if is_valid(self.x + 1, self.y - 2 - EXPANDED_CELL * 2):
+                    cells.append(CellState(self.x + 1, self.y - 2 - EXPANDED_CELL *
+                                 2, Direction.NORTH, self.obstacle_id, SCREENSHOT_COST))
+                # Or (x - 1, y - 4)
+                if is_valid(self.x - 1, self.y - 2 - EXPANDED_CELL * 2):
+                    cells.append(CellState(self.x - 1, self.y - 2 - EXPANDED_CELL *
+                                 2, Direction.NORTH, self.obstacle_id, SCREENSHOT_COST))
+
+            elif retrying == True:
+                # Or (x, y - 4)
+                if is_valid(self.x, self.y - 2 - EXPANDED_CELL * 2):
+                    cells.append(CellState(
+                        self.x, self.y - 2 - EXPANDED_CELL * 2, Direction.NORTH, self.obstacle_id, 0))
+                # Or (x, y - 5)
+                if is_valid(self.x, self.y - 3 - EXPANDED_CELL * 2):
+                    cells.append(CellState(
+                        self.x, self.y - 3 - EXPANDED_CELL * 2, Direction.NORTH, self.obstacle_id, 0))
+                # Or (x + 1, y - 4)
+                if is_valid(self.x + 1, self.y - 2 - EXPANDED_CELL * 2):
+                    cells.append(CellState(self.x + 1, self.y - 2 - EXPANDED_CELL *
+                                 2, Direction.NORTH, self.obstacle_id, SCREENSHOT_COST))
+                # Or (x - 1, y - 4)
+                if is_valid(self.x - 1, self.y - 2 - EXPANDED_CELL * 2):
+                    cells.append(CellState(self.x - 1, self.y - 2 - EXPANDED_CELL *
+                                 2, Direction.NORTH, self.obstacle_id, SCREENSHOT_COST))
+
+        # If obstacle is facing east, then robot's cell state must be facing west
+        elif self.direction == Direction.EAST:
+
+            if retrying == False:
+                # Or (x + 3,y)
+                if is_valid(self.x + 1 + EXPANDED_CELL * 2, self.y):
+                    cells.append(CellState(self.x + 1 + EXPANDED_CELL * 2,
+                                 self.y, Direction.WEST, self.obstacle_id, 5))
+                # Or (x + 4,y)
+                if is_valid(self.x + 2 + EXPANDED_CELL * 2, self.y):
+                    # print(f"Obstacle facing east, Adding {self.x + 2 + EXPANDED_CELL * 2}, {self.y}")
+                    cells.append(CellState(self.x + 2 + EXPANDED_CELL * 2,
+                                 self.y, Direction.WEST, self.obstacle_id, 0))
+
+                # Or (x + 3,y + 1)
+                # if is_valid(self.x + 1 + EXPANDED_CELL * 2, self.y + 1):
+                #     #print(f"Obstacle facing east, Adding {self.x + 2 + EXPANDED_CELL * 2}, {self.y + 1}")
+                #     cells.append(CellState(self.x + 1 + EXPANDED_CELL * 2, self.y + 1, Direction.WEST, self.obstacle_id, SCREENSHOT_COST*10))
+                # # Or (x + 3,y - 1)
+                # if is_valid(self.x + 1 + EXPANDED_CELL * 2, self.y - 1):
+                #     #print(f"Obstacle facing east, Adding {self.x + 2 + EXPANDED_CELL * 2}, {self.y - 1}")
+                #     cells.append(CellState(self.x + 1 + EXPANDED_CELL * 2, self.y - 1, Direction.WEST, self.obstacle_id, SCREENSHOT_COST*10))
+
+                # Or (x + 4, y + 1)
+                if is_valid(self.x + 2 + EXPANDED_CELL * 2, self.y + 1):
+                    cells.append(CellState(self.x + 2 + EXPANDED_CELL * 2, self.y +
+                                 1, Direction.WEST, self.obstacle_id, SCREENSHOT_COST))
+                # Or (x + 4, y - 1)
+                if is_valid(self.x + 2 + EXPANDED_CELL * 2, self.y - 1):
+                    cells.append(CellState(self.x + 2 + EXPANDED_CELL * 2, self.y -
+                                 1, Direction.WEST, self.obstacle_id, SCREENSHOT_COST))
+
+            elif retrying == True:
+                # Or (x + 4, y)
+                if is_valid(self.x + 2 + EXPANDED_CELL * 2, self.y):
+                    cells.append(CellState(self.x + 2 + EXPANDED_CELL * 2,
+                                 self.y, Direction.WEST, self.obstacle_id, 0))
+                # Or (x + 5, y)
+                if is_valid(self.x + 3 + EXPANDED_CELL * 2, self.y):
+                    cells.append(CellState(self.x + 3 + EXPANDED_CELL * 2,
+                                 self.y, Direction.WEST, self.obstacle_id, 0))
+                # Or (x + 4,y + 1)
+                if is_valid(self.x + 2 + EXPANDED_CELL * 2, self.y + 1):
+                    cells.append(CellState(self.x + 2 + EXPANDED_CELL * 2, self.y +
+                                 1, Direction.WEST, self.obstacle_id, SCREENSHOT_COST))
+                # Or (x + 4,y - 1)
+                if is_valid(self.x + 2 + EXPANDED_CELL * 2, self.y - 1):
+                    cells.append(CellState(self.x + 2 + EXPANDED_CELL * 2, self.y -
+                                 1, Direction.WEST, self.obstacle_id, SCREENSHOT_COST))
+
+        # If obstacle is facing west, then robot's cell state must be facing east
+        elif self.direction == Direction.WEST:
+            # It can be (x - 2,y)
+            # if is_valid(self.x - EXPANDED_CELL * 2, self.y):
+            #     cells.append(CellState(self.x - EXPANDED_CELL * 2, self.y, Direction.EAST, self.obstacle_id, 0))
+
+            if retrying == False:
+                # Or (x - 3, y)
+                if is_valid(self.x - 1 - EXPANDED_CELL * 2, self.y):
+                    cells.append(CellState(self.x - 1 - EXPANDED_CELL * 2,
+                                 self.y, Direction.EAST, self.obstacle_id, 5))
+                # Or (x - 4, y)
+                if is_valid(self.x - 2 - EXPANDED_CELL * 2, self.y):
+                    cells.append(CellState(self.x - 2 - EXPANDED_CELL * 2,
+                                 self.y, Direction.EAST, self.obstacle_id, 0))
+
+                # Or (x - 3,y + 1)
+                # if is_valid(self.x - 1 - EXPANDED_CELL * 2, self.y + 1):
+                #     cells.append(CellState(self.x - 1 - EXPANDED_CELL * 2, self.y + 1, Direction.EAST, self.obstacle_id, SCREENSHOT_COST*10))
+                # # Or (x - 3,y - 1)
+                # if is_valid(self.x - 1 - EXPANDED_CELL * 2, self.y - 1):
+                #     cells.append(CellState(self.x - 1 - EXPANDED_CELL * 2, self.y - 1, Direction.EAST, self.obstacle_id, SCREENSHOT_COST*10))
+
+                # Or (x - 4, y + 1)
+                if is_valid(self.x - 2 - EXPANDED_CELL * 2, self.y + 1):
+                    cells.append(CellState(self.x - 2 - EXPANDED_CELL * 2, self.y +
+                                 1, Direction.EAST, self.obstacle_id, SCREENSHOT_COST))
+                # Or (x - 4, y - 1)
+                if is_valid(self.x - 2 - EXPANDED_CELL * 2, self.y - 1):
+                    cells.append(CellState(self.x - 2 - EXPANDED_CELL * 2, self.y -
+                                 1, Direction.EAST, self.obstacle_id, SCREENSHOT_COST))
+
+            elif retrying == True:
+                # Or (x - 4, y)
+                if is_valid(self.x - 2 - EXPANDED_CELL * 2, self.y):
+                    cells.append(CellState(self.x - 2 - EXPANDED_CELL * 2,
+                                 self.y, Direction.EAST, self.obstacle_id, 0))
+                # Or (x - 5, y)
+                if is_valid(self.x - 3 - EXPANDED_CELL * 2, self.y):
+                    cells.append(CellState(self.x - 3 - EXPANDED_CELL * 2,
+                                 self.y, Direction.EAST, self.obstacle_id, 0))
+                # Or (x - 4, y + 1)
+                if is_valid(self.x - 2 - EXPANDED_CELL * 2, self.y + 1):
+                    cells.append(CellState(self.x - 2 - EXPANDED_CELL * 2, self.y +
+                                 1, Direction.EAST, self.obstacle_id, SCREENSHOT_COST))
+                # Or (x - 4, y - 1)
+                if is_valid(self.x - 2 - EXPANDED_CELL * 2, self.y - 1):
+                    cells.append(CellState(self.x - 2 - EXPANDED_CELL * 2, self.y -
+                                 1, Direction.EAST, self.obstacle_id, SCREENSHOT_COST))
+
         return cells
 
 
@@ -156,16 +336,17 @@ class Grid:
         Returns:
             bool: _description_
         """
-        
+
         if not self.is_valid_coord(x, y):
             return False
 
         for ob in self.obstacles:
             dx, dy = abs(ob.x - x), abs(ob.y - y)
-            if dx + dy >= 4 * MAP_TO_PLANNER:
-                continue
-            clearance = (5 if turn or preTurn else 3) * MAP_TO_PLANNER
-            if max(dx, dy) < clearance:
+            if turn or preTurn:
+                if (dx + dy) * GRID_CELL_CM < TURN_CLEARANCE_CM:
+                    return False
+            elif ((dx + dy) * GRID_CELL_CM < STRAIGHT_MANHATTAN_CLEARANCE_CM
+                  and max(dx, dy) * GRID_CELL_CM < STRAIGHT_AXIS_CLEARANCE_CM):
                 return False
 
         return True
@@ -180,7 +361,7 @@ class Grid:
         Returns:
             bool: True if valid, False otherwise
         """
-        if x < MAP_TO_PLANNER or x > self.size_x - 2 * MAP_TO_PLANNER or y < MAP_TO_PLANNER or y > self.size_y - 2 * MAP_TO_PLANNER:
+        if x < 1 or x >= self.size_x - 1 or y < 1 or y >= self.size_y - 1:
             return False
 
         return True

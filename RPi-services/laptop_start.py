@@ -92,7 +92,7 @@ def main():
     for path in missing:
         print(f"Missing: {path}")
     print(f"CV backend: {args.cv_backend}" + (" (temporary best.pt model)" if args.cv_backend == "trial" else ""))
-    print("Task 1: motor speed 50; 5 cm planner; 10 cm tablet map")
+    print("Task 1: motor speed 50; 10 cm planner/tablet map; 30 cm turn clearance")
     for name, _, _, _, port, health in specs:
         print(f"{name}: {'healthy' if up(f'http://127.0.0.1:{port}{health}') else 'not healthy'} on :{port}")
     ips = lan_ips()

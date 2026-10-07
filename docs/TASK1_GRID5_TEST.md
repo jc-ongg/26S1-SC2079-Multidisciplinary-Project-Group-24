@@ -1,5 +1,7 @@
 # Speed-50 / 5 cm Task 1 test setup â€” 2026-10-07
 
+**Superseded:** use the [restored 10 cm planner with 30 cm turn clearance](TASK1_ROLLBACK_2026-10-07.md) for the current setup. The 5 cm trial is backed up.
+
 Jacob confirmed that the supplied turn measurements were taken at speed **50**
 and requested a **5 cm test setup with backup**. This is the single active movement
 configuration. The Android map stays 10 cm; converting to a 40 Ã— 40 internal grid

@@ -478,10 +478,9 @@ class RaspberryPi:
                         and new_obstacle_list):
                     self.logger.info("Attempting to go to failed obstacles")
                     self.failed_attempt = True
-                    retry_x = self.current_location.get('planner_x', self.current_location['x'] * 2) / 2
-                    retry_y = self.current_location.get('planner_y', self.current_location['y'] * 2) / 2
                     prepared = self.request_algo({'obstacles': new_obstacle_list, 'mode': '0'},
-                                                retry_x, retry_y, self.current_location['d'], retrying=True)
+                                                self.current_location['x'], self.current_location['y'],
+                                                self.current_location['d'], retrying=True)
                     self.movement_lock.release()
                     if not prepared:
                         self._pause_motion('Could not prepare the revisit route.')

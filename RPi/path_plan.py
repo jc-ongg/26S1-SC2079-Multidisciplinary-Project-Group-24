@@ -5,6 +5,8 @@ def parse_plan(result):
     if not isinstance(result, dict) or result.get("error"):
         raise ValueError("Algo returned an error")
     data = result.get("data", result)
+    if data.get('grid_cell_cm') != 10 or data.get('input_cell_cm') != 10:
+        raise ValueError('Algo must use the restored 10 cm planner and tablet grid')
     commands = data.get("stm_commands")
     poses = data.get("command_poses")
     if not isinstance(commands, list) or not commands or commands[-1] != "FIN":
@@ -21,8 +23,4 @@ def parse_plan(result):
             pose["d"] not in (0, 2, 4, 6) or
             not (0 <= pose["x"] < 20 and 0 <= pose["y"] < 20)):
             raise ValueError("Algo returned an invalid command position")
-        if pose is not None and any(key in pose for key in ('planner_x', 'planner_y')):
-            if any(type(pose.get(key)) is not int or not 0 <= pose[key] < 40
-                   for key in ('planner_x', 'planner_y')):
-                raise ValueError("Algo returned an invalid 5 cm planner position")
     return list(zip(commands, poses))

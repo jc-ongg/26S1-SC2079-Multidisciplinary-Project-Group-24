@@ -1,4 +1,4 @@
-# Laptop Algo + CV services
+# Laptop Algo + CV
 
 From the Windows repository root:
 
@@ -6,34 +6,25 @@ From the Windows repository root:
 .\Algo\.venv-cv-win\Scripts\python.exe -u RPi-services/laptop_start.py --python .\Algo\.venv-cv-win\Scripts\python.exe
 ```
 
-One active movement setup: speed 50, 5 cm internal planner, 10 cm tablet map.
-There are no movement/calibration overlay options. `--check` starts nothing.
-Normal launch refuses occupied ports, logs under `RPi-services/logs/`, and Ctrl-C
-stops its children. It does not start the Pi.
+One active movement setup: restored-speed50-grid10, speed50, 10 cm map/planner,
+30 cm Manhattan turn clearance. No calibration/profile switches. --check starts
+nothing. The launcher refuses occupied ports, logs under RPi-services/logs/,
+and Ctrl-C stops its children. It does not start the Pi.
 
-The default CV backend is the existing `Algo/best.pt` detector at port 8001.
-Algo runs at 8000. Captures and saved montages are in `output/cv-trial/`.
-Open `http://127.0.0.1:8001/stitch` after the run; a successful request also writes
-`stitched-<run hash>.jpg`. Model labels are MDP image IDs, not ONNX class indices.
+Default CV remains Algo/best.pt on8001; Algo is8000. Images and saved montages
+are in output/cv-trial/. Open http://127.0.0.1:8001/stitch after a run.
 
-To create a fresh Windows environment:
+Fresh Windows environment:
 
 ```powershell
 py -3.11 -m venv Algo/.venv-cv-win
 .\Algo\.venv-cv-win\Scripts\python.exe -m pip install -r Algo/requirements-cv-trial.txt
 ```
 
-Keep Wi-Fi on the Pi hotspot and use the laptop's actual `192.168.50.x` address.
-Pi startup/configuration: [RPi guide](../RPi/README.md).
+Keep Wi-Fi on the Pi hotspot and use the laptop's 192.168.50.x address.
+[Pi startup](../RPi/README.md) and [current setup/backups](../docs/TASK1_ROLLBACK_2026-10-07.md).
 
-The original ONNX backend remains an explicit alternative (`--cv-backend onnx`)
-requiring the separately supplied `image-api/best_v11i_m.onnx` and its dependencies.
-Its model is currently absent on this laptop. The release is
-[cv-model-v11i](https://github.com/jc-ongg/26S1-SC2079-Multidisciplinary-Project-Group-24/releases/tag/cv-model-v11i).
-Expected SHA-256: `8c4f382f800d123e069fe93f0069e279175594c0a6ef631c699fbc3d957ee7d5`.
-`laptop_setup.py` installs that optional backend; it is not necessary for today's
-best.pt test. Do not run it over a working environment.
-
-`laptop_verify.py` uses historical 10 cm golden route commands; those exact command
-expectations are archived baselines. Use the current Algo/Pi test suites for the
-5 cm setup. The optional viewer is not required for Task 1.
+The original ONNX remains an explicit alternative (--cv-backend onnx), requiring
+image-api/best_v11i_m.onnx and its dependencies. It is absent on this laptop.
+The cv-model-v11i release and laptop_setup.py preserve that optional recovery.
+Use current Algo/Pi tests; laptop_verify.py's exact golden routes are historical.

@@ -1,28 +1,20 @@
 # Task 1 algorithm API
 
-The active test configuration is defined once in `consts.py`: speed 50,
-5 cm internal cells, measured/padded turn endpoints, 40 × 40 arena.
-The public tablet map stays at 10 cm and 20 × 20 cells. Coordinates are scaled
-on input; output tablet poses retain exact `planner_x` / `planner_y` for revisits.
+The current profile is **restored-speed50-grid10**. The previous 10 cm planner,
+turn geometry/padding and motor-command schedule are restored; the requested
+turn clearance reduction is 40 cm to 30 cm Manhattan distance. Straight checks
+and robot-centre arena limits (cells 1–18) are preserved. Motor speed stays 50.
 
-Run the root [laptop launcher](../README.md) to start both Algo (8000) and CV (8001).
-Standalone planning uses `python main.py` from this directory; install dependencies
-from `requirements.txt` or the combined `requirements-cv-trial.txt` environment.
+[Current configuration, commands, tests and backup](../docs/TASK1_ROLLBACK_2026-10-07.md)
+[CV captures and montage](CV_TRIAL.md)
 
-`GET /status` identifies the active profile, speed and grid sizes.
-`POST /path` accepts the existing text map protocol. `stm_commands` use physical
-centimetres, all turns use 90 degrees, and `command_poses` align with the final
-merged motor schedule. Intermediate turn padding has no future endpoint.
+Run the root laptop launcher for Algo8000 and CV8001. `GET /status` identifies
+the profile, speed, grid sizes and turn clearance. `POST /path` uses the same
+text map protocol; `stm_commands` use physical centimetres and 90-degree turns,
+and `command_poses` follow the final padded/cancelled motor schedule.
 
-Directed shortest paths are calculated once per source pose. One dynamic program
-selects camera poses and visiting order, prioritizing the number of targets,
-then cost. Missing edges are excluded; unreachable targets are not fabricated.
-The Pi reports partial route coverage before Start.
-
-[Measurements, procedure and backups](../docs/TASK1_GRID5_TEST.md)
-[CV images and montage](CV_TRIAL.md)
-
-`archive/` contains the former 10 cm / speed25 / speed50-overlay instructions
-and tests. They are recovery references and do not run against the active setup.
-The optional turtle/frontend simulator is not updated to display the 5 cm planner;
-use the tablet and API traces for this test setup.
+The user's eight-target map returns all eight SNAP IDs with reduced clearance.
+Planning coverage is not proof of physical clearance; turns still use endpoint
+checks rather than a swept-body collision model. `archive/grid5-trial/` and
+commit `4d2bea0f` preserve the 5 cm experiment. Other historical calibration
+references under `archive/` are not active profile choices.
