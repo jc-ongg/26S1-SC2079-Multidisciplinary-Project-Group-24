@@ -26,8 +26,10 @@ LAPTOP_IP=192.168.50.181 python3 -u task1_main.py
 ```
 
 Use the laptop's actual hotspot IP. Connect Android, enter/resend the map,
-check **8/8** for the tested layout, wait for **READY**, then **Start**.
-No tablet reflash is needed for the rollback. Android stays on 10 cm coordinates.
+check route coverage, wait for **READY**, then **Start**. A valid partial route
+such as **7/8** can start and skips the unreachable target.
+The updated Android app waits 190 seconds for READY; install the latest build
+to replace its old 70-second wait. Android stays on 10 cm coordinates.
 
 Robot-centre arena margins stay at cells **1-18**. Turn start/end positions
 require at least 40 cm Manhattan distance from obstacle centres. Straight checks

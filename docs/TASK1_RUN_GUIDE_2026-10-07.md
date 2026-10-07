@@ -105,8 +105,9 @@ validator and ended in FIN:
 
 Some other checks ran concurrently, so these times are observations, not
 isolated benchmarks or guaranteed bounds. They exclude physical movement,
-capture and inference. Pi's planning request times out after 60 seconds and
-Android's route-confirmation wait after 70 seconds. Send Map early and rehearse
+capture and inference. The current Pi planning request allows 3 seconds for
+connection and 180 seconds for the response. The updated Android app waits
+190 seconds for route confirmation. Send Map early and rehearse
 the selected profile on representative layouts.
 
 The existing 2026-10-04 validation remains: 57 curated offline Pi tests and
