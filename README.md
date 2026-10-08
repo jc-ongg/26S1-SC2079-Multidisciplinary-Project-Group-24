@@ -10,15 +10,17 @@ Use `main` for shared work. Older experiments are archived and backed up.
 [Current photo retries and finish behavior](docs/TASK1_PHOTO_STOP_2026-10-07.md)
 [Proposed improvements and 5 cm / 1 cm trial handover](docs/TASK1_IMPROVEMENT_BACKLOG_2026-10-07.md)
 
-From this Windows repository root:
+From the repository root (Windows, macOS or Linux):
 
 ```powershell
-.\Algo\.venv-cv-win\Scripts\python.exe -u RPi-services/laptop_start.py --python .\Algo\.venv-cv-win\Scripts\python.exe
+python RPi-services/laptop_setup.py   # once: venvs + best_v11i_m.onnx from the cv-model-v11i release
+python RPi-services/laptop_start.py
 ```
 
-The launcher starts Algo8000 and the existing best.pt CV detector8001, refuses
-occupied ports, and prints the laptop Wi-Fi address. `--check` starts nothing.
-There are no movement profile switches. Source changes require a service restart.
+The launcher starts Algo on 8000 and image-api on 8001. Recognition is
+**best_v11i_m.onnx only**; the old best.pt detector was removed (it read arrows
+badly). The launcher refuses occupied ports and prints the laptop Wi-Fi
+address. `--check` starts nothing. Source changes require a service restart.
 
 On the Pi, with other robot controllers/serial monitors stopped:
 
@@ -39,15 +41,19 @@ are preserved. The earlier crowded map returns 7/8 at this clearance; resend
 the current map and check coverage before Start. The tablet icon advances to planned
 poses after matching motor completion; it is not continuous measured odometry.
 
-Images: `output/cv-trial/`; open `http://127.0.0.1:8001/stitch` for the current run.
-A successful request saves `stitched-<run hash>.jpg` there. Pi originals are
-under `/home/nat/SC2079-MDP/rpi/captures/`.
+Images: `RPi-services/image-api/own_results/`; open `http://127.0.0.1:8001/stitch`
+for the current run. Pi originals are under `/home/nat/SC2079-MDP/rpi/captures/`.
+
+The Pi keeps the camera running for the whole run (`RPi/camera.py`), so each
+obstacle stop is one frame grab (~0.1 s) plus recognition, not a 2-3 s cold
+`rpicam-still` start. The log prints `Obstacle N: stop took X.Xs`. Stop
+`videostream/main.py` before Task 1, or it falls back to `rpicam-still`.
 
 Task 1 is `RPi/task1_main.py` -> `task1_controller.py`; `--manual` is a separate
 arrow test. The optimized planner uses one visit-order calculation and caches
 directed segments, including failures. Turn padding follows the latest bare
 speed-50 measurements. It keeps the 180-second planning timeout and
-working Ctrl-C shutdown. STM firmware and CV weights are unchanged.
+working Ctrl-C shutdown. STM firmware is unchanged.
 Git pushes do not deploy the Pi or install the tablet app.
 
 ```powershell

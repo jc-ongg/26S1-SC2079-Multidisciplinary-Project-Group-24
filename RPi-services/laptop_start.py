@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start laptop Algo and an explicitly chosen CV backend. Never starts the Pi.
+"""Start laptop Algo and image-api (best_v11i_m.onnx). Never starts the Pi.
 
 Use --check for read-only checks. Ctrl-C stops only children started here.
 """
@@ -49,17 +49,14 @@ def service_specs(args):
     shared = Path(args.python).resolve() if args.python else None
     algo_py = shared or venv_python(ALGO / ".venv")
     image_py = shared or venv_python(IMAGE_API / "venv")
-    trial = args.cv_backend == "trial"
-    model = ALGO / "best.pt" if trial else MODEL
-    cv_command = ([str(image_py), "cv_trial_server.py", "--port", str(args.image_port)]
-                  if trial else [str(image_py), "main.py"])
+    # Recognition is image-api + best_v11i_m.onnx only. best.pt was removed.
     specs = [
         ("Algo", [str(algo_py), "main.py"], ALGO,
          {"ALGO_PORT": str(args.algo_port)}, args.algo_port, "/status"),
-        ("cv-trial" if trial else "image-api", cv_command, ALGO if trial else IMAGE_API,
+        ("image-api", [str(image_py), "main.py"], IMAGE_API,
          {"IMAGE_API_PORT": str(args.image_port)}, args.image_port, "/health"),
     ]
-    return specs, (algo_py, image_py, model)
+    return specs, (algo_py, image_py, MODEL)
 
 
 def stop_children(procs):
@@ -80,7 +77,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--algo-port", type=int, default=8000)
     ap.add_argument("--image-port", type=int, default=8001)
-    ap.add_argument("--cv-backend", choices=("onnx", "trial"), default="trial")
+    # Kept so old "--cv-backend onnx" commands still work; "trial" (best.pt) is gone.
+    ap.add_argument("--cv-backend", choices=("onnx",), default="onnx", help=argparse.SUPPRESS)
     ap.add_argument("--python", help="Existing Python environment for both services")
     ap.add_argument("--check", action="store_true", help="Check files/health only; start nothing")
     args = ap.parse_args()
@@ -91,7 +89,7 @@ def main():
     missing = [path for path in set(required) if not path.is_file()]
     for path in missing:
         print(f"Missing: {path}")
-    print(f"CV backend: {args.cv_backend}" + (" (temporary best.pt model)" if args.cv_backend == "trial" else ""))
+    print(f"CV: image-api with {MODEL.name}")
     print("Task 1: motor speed 50; 10 cm planner/tablet map; 40 cm turn clearance")
     for name, _, _, _, port, health in specs:
         print(f"{name}: {'healthy' if up(f'http://127.0.0.1:{port}{health}') else 'not healthy'} on :{port}")

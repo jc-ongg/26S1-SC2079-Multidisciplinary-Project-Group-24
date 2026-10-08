@@ -12,7 +12,8 @@ LAPTOP_IP=192.168.50.181 python3 -u task1_main.py
 Use the laptop's actual Wi-Fi address. Settings support LAPTOP_IP, CV_IP,
 ALGO_PORT, IMAGE_API_PORT and STM_SERIAL_PORT. Defaults are ports8000/8001
 and the existing serial by-id device. Dependencies are requirements.txt;
-Bluetooth uses stdlib sockets and the camera uses OS rpicam-still.
+Bluetooth uses stdlib sockets. The camera is kept running for the whole run via
+Picamera2 (camera.py); rpicam-still is only the fallback if it cannot open.
 
 MAP prepares the route before Start; matching READY enables BEGIN. Planning
 requests use (3,180) seconds for connection/read; the separate motor-completion
@@ -22,7 +23,7 @@ applies the latest measured speed-50 padding. Revisit coordinates remain on
 the same 10 cm grid. The Ctrl-C shutdown fix remains installed.
 
 Camera frames, including retries, go into captures/. Laptop images and saved
-montages stay in output/cv-trial/. Other robot controllers/serial monitors must
+montages stay in RPi-services/image-api/own_results/. Other robot controllers/serial monitors must
 be stopped before Task1. --manual is a separate arrow test; tools/bt_echo.py is
 a Bluetooth diagnostic. run_week8.sh launches the same Task1 program.
 

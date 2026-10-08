@@ -436,12 +436,9 @@ class VisionClient:
         if requests is None:
             raise Task2Error("requests is not installed. Run: pip3 install requests")
         self.timeout = timeout
-        # Current task instructions point to Algo/main.py:8000 /infer. The repo
-        # also contains the older/better image-api:8001 /predict. Try 8000 first
-        # and fall back automatically so Task 2 does not depend on one branch's
-        # service layout.
+        # Recognition is image-api + best_v11i_m.onnx only. Algo's /infer
+        # (best.pt) was removed: it read arrows badly.
         self.backends = [
-            ("algo", f"http://{laptop_ip}:8000/infer"),
             ("image-api", f"http://{laptop_ip}:8001/predict"),
         ]
 

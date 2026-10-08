@@ -214,6 +214,38 @@ class Task1CVLockTests(unittest.TestCase):
         self.assertEqual(self.http.post.call_args.kwargs['timeout'], (3, 10))
         self.assertEqual(self.capture.call_args.kwargs['timeout'], 10)
 
+    def test_warm_camera_replaces_rpicam_still(self):
+        self.bot.camera = Mock()
+        self.bot.camera.capture.return_value = True
+        self.http.post.return_value = self.response('RIGHT', '38')
+        self.run_commands('SNAP1', 'FIN')
+        self.bot.camera.capture.assert_called_once()
+        self.capture.assert_not_called()  # no cold-start rpicam-still
+        self.assertEqual(self.bot.success_obstacles, ['1'])
+        self.assertEqual(self.bot.movement_lock.releases, 2)
+
+    def test_warm_camera_failure_falls_back_to_rpicam_still(self):
+        self.bot.camera = Mock()
+        self.bot.camera.capture.return_value = False
+        self.http.post.return_value = self.response('RIGHT', '38')
+        self.run_commands('SNAP1', 'FIN')
+        self.assertEqual(self.capture.call_count, 1)
+        self.assertEqual(self.capture.call_args.args[0][0], 'rpicam-still')
+        self.assertEqual(self.bot.success_obstacles, ['1'])
+
+    def test_robot_waits_for_recognition_then_moves_on(self):
+        self.bot.camera = Mock()
+        self.bot.camera.capture.return_value = True
+        def predict(*args, **kwargs):
+            # Still stopped in front of the obstacle while recognising.
+            self.assertTrue(self.bot.movement_lock.locked())
+            return self.response('RIGHT', '38')
+        self.http.post.side_effect = predict
+        self.run_commands('SNAP1', 'FIN')
+        # A recognised image is never photographed again.
+        self.assertEqual(self.bot.camera.capture.call_count, 1)
+        self.assertFalse(self.bot.movement_lock.locked())
+
     def test_fin_retry_sees_failed_capture_before_requesting_new_path(self):
         self.bot.failed_attempt = False
         self.http.post.return_value = self.response()
