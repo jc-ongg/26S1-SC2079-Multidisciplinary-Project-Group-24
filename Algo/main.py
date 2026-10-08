@@ -1,5 +1,4 @@
 import time
-from datetime import datetime
 from algo.algo import PathFinder
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
@@ -9,16 +8,15 @@ from car_animation import run_turtle_sim
 import queue
 import threading
 import turtle
-from PIL import Image, ImageOps
-import io
 from threading import Lock
 import ast
 import consts
 
-# Image recognition is NOT done here -- it runs on image-api (:8001) with
-# best_v11i_m.onnx. The old best.pt detector was removed from the repo: it read
-# arrows badly (0.43 vs 0.93 on the 3/3 run's right arrow). Path planning only.
-IMAGE_API_HINT = "image recognition is served by image-api on :8001 (/predict)"
+# All recognition uses the same CV service and released ONNX model.
+# /infer is a compatibility adapter; it never loads the old best.pt.
+import requests
+CV_BASE_URL = os.environ.get(
+    'CV_BASE_URL', 'http://127.0.0.1:' + os.environ.get('IMAGE_API_PORT', '8001')).rstrip('/')
 
 # Create upload directory if not exists
 UPLOAD_FOLDER = "uploads"
@@ -202,8 +200,43 @@ def path_finding():
 
 @app.route('/infer', methods=['POST'])
 def image_predict():
-    """Removed. Recognition is image-api's job; see IMAGE_API_HINT."""
-    return jsonify({"ok": False, "error": f"/infer was removed -- {IMAGE_API_HINT}"}), 410
+    upload = request.files.get('file')
+    if upload is None:
+        upload = request.files.get('image')
+    if upload is None:
+        return jsonify(ok=False, error='Upload an image using file or image'), 400
+    started = time.monotonic()
+    try:
+        response = requests.post(
+            CV_BASE_URL + '/predict',
+            data={key: value for key, value in request.form.items()
+                  if key in ('run_id', 'target_obstacle_id', 'signal', 'attempt')},
+            files={'image': (upload.filename or 'frame.jpg', upload.stream,
+                             upload.content_type or 'image/jpeg')},
+            timeout=(3, 30))
+        result = response.json()
+        if not response.ok:
+            return jsonify(ok=False, error=result.get('error', 'CV recognition failed'),
+                           capture=result), response.status_code
+        detections = result.get('detections', [])
+        return jsonify(ok=True, n=len(detections), detections=detections,
+                       latency_ms=round((time.monotonic() - started) * 1000, 1),
+                       model=result.get('model'), capture=result)
+    except (requests.RequestException, ValueError) as exc:
+        return jsonify(ok=False, error=f'CV service unavailable: {exc}'), 503
+
+
+@app.route('/stitch', methods=['GET'])
+def image_stitch():
+    try:
+        response = requests.get(CV_BASE_URL + '/stitch',
+                                params=request.args.to_dict(), timeout=(3, 30))
+        headers = {'Content-Type': response.headers.get('Content-Type', 'application/json')}
+        if response.headers.get('X-Stitch-File'):
+            headers['X-Stitch-File'] = response.headers['X-Stitch-File']
+        return response.content, response.status_code, headers
+    except requests.RequestException as exc:
+        return jsonify(error=f'CV service unavailable: {exc}'), 503
 
 
 @app.route('/animate', methods=['POST'])

@@ -1250,6 +1250,8 @@ class HomeFragment :
 
     fun resetArena() {
 
+        BluetoothSession.clearTargets()
+
         arenaGridView
             .resetArena()
 
@@ -1441,6 +1443,7 @@ class HomeFragment :
 
             if (loaded) {
                 BluetoothSession.invalidatePreparation()
+                BluetoothSession.clearTargets()
                 updateVesselInformation()
             }
 
@@ -1548,6 +1551,17 @@ class HomeFragment :
         )
     }
 
+
+    override fun onTargetsChanged() {
+        if (!::arenaGridView.isInitialized || view == null) return
+        arenaGridView.clearObstacleTargets()
+        BluetoothSession.targetSnapshot().forEach { (obstacle, image) ->
+            arenaGridView.updateObstacleTarget(obstacle, image)
+        }
+        if (::vesselStatus.isInitialized && ::vesselTaskStatus.isInitialized) {
+            updateVesselInformation()
+        }
+    }
 
     fun updateObstacleTarget(
         obstacleId: Int,

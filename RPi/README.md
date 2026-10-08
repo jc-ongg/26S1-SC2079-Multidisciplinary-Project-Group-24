@@ -22,14 +22,22 @@ advance only after matching ACK. Turn geometry uses the 10 cm map; the laptop
 applies the latest measured speed-50 padding. Revisit coordinates remain on
 the same 10 cm grid. The Ctrl-C shutdown fix remains installed.
 
-Camera frames, including retries, go into captures/. Laptop images and saved
-montages stay in RPi-services/image-api/own_results/. Other robot controllers/serial monitors must
+Camera frames, including retries, go into captures/. Laptop raw images, result
+JSON, annotations and montages stay in RPi-services/image-api/own_results/.
+Task 1 checks that the laptop is running best_v11i_m.onnx before using STM.
+The CV upload includes run_id, target_obstacle_id, camera alignment and attempt.
+Accepted IDs are normalised by recognition.py, sent as TARGET frames and cached
+for Bluetooth reconnect replay. Already recognised obstacles are not recaptured.
+Other robot controllers/serial monitors must
 be stopped before Task1. --manual is a separate arrow test; tools/bt_echo.py is
 a Bluetooth diagnostic. run_week8.sh launches the same Task1 program.
 
 archive/ holds old A5/sensor experiments and numbered Task2 versions. The
 preserved KC monitor and helpers are in task2/; its motion logic is unchanged.
 A Git push does not deploy this non-Git Pi directory.
+Deploy both task1_controller.py and recognition.py for this handoff update.
+
+[ONNX handoff deployment](../docs/TASK1_ONNX_HANDOFF_2026-10-08.md)
 
 ```bash
 python3 -B tests/test_offline.py

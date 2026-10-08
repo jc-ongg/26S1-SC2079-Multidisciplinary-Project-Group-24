@@ -52,7 +52,8 @@ def service_specs(args):
     # Recognition is image-api + best_v11i_m.onnx only. best.pt was removed.
     specs = [
         ("Algo", [str(algo_py), "main.py"], ALGO,
-         {"ALGO_PORT": str(args.algo_port)}, args.algo_port, "/status"),
+         {"ALGO_PORT": str(args.algo_port),
+          "CV_BASE_URL": f"http://127.0.0.1:{args.image_port}"}, args.algo_port, "/status"),
         ("image-api", [str(image_py), "main.py"], IMAGE_API,
          {"IMAGE_API_PORT": str(args.image_port)}, args.image_port, "/health"),
     ]

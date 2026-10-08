@@ -1,0 +1,14 @@
+# Use the existing Windows Algo/CV environment with the released ONNX backend.
+# (formerly -r requirements-cv-trial.txt, inlined when best.pt was removed)
+flask>=3.0,<4
+ultralytics>=8.3,<9
+Pillow>=10,<13
+numpy>=1.24,<3
+flask-cors>=4,<7
+python-tsp>=0.4,<1
+fastapi>=0.110,<1
+uvicorn>=0.27,<1
+python-multipart>=0.0.9,<1
+onnx>=1.16,<2
+onnxruntime>=1.18,<2
+pandas>=2.2,<3

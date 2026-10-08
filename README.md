@@ -10,17 +10,20 @@ Use `main` for shared work. Older experiments are archived and backed up.
 [Current photo retries and finish behavior](docs/TASK1_PHOTO_STOP_2026-10-07.md)
 [Proposed improvements and 5 cm / 1 cm trial handover](docs/TASK1_IMPROVEMENT_BACKLOG_2026-10-07.md)
 
-From the repository root (Windows, macOS or Linux):
+From this Windows repository root:
 
 ```powershell
-python RPi-services/laptop_setup.py   # once: venvs + best_v11i_m.onnx from the cv-model-v11i release
-python RPi-services/laptop_start.py
+.\Algo\.venv-cv-win\Scripts\python.exe -u RPi-services/laptop_start.py --python .\Algo\.venv-cv-win\Scripts\python.exe
 ```
 
-The launcher starts Algo on 8000 and image-api on 8001. Recognition is
-**best_v11i_m.onnx only**; the old best.pt detector was removed (it read arrows
-badly). The launcher refuses occupied ports and prints the laptop Wi-Fi
-address. `--check` starts nothing. Source changes require a service restart.
+The launcher starts Algo8000 and the released best_v11i_m.onnx CV model8001, refuses
+occupied ports, and prints the laptop Wi-Fi address. `--check` starts nothing.
+There are no movement profile switches. Source changes require a service restart.
+Install the Windows ONNX dependencies once with
+`.\Algo\.venv-cv-win\Scripts\python.exe -m pip install -r Algo/requirements-cv-onnx-win.txt`.
+The model belongs in `RPi-services/image-api/best_v11i_m.onnx` (`laptop_setup.py`
+fetches it from the cv-model-v11i release). It is the only recognition model:
+the old `Algo/best.pt` was removed because it read arrows badly.
 
 On the Pi, with other robot controllers/serial monitors stopped:
 
@@ -41,20 +44,28 @@ are preserved. The earlier crowded map returns 7/8 at this clearance; resend
 the current map and check coverage before Start. The tablet icon advances to planned
 poses after matching motor completion; it is not continuous measured odometry.
 
-Images: `RPi-services/image-api/own_results/`; open `http://127.0.0.1:8001/stitch`
-for the current run. Pi originals are under `/home/nat/SC2079-MDP/rpi/captures/`.
+ONNX images: `RPi-services/image-api/own_results/`; open
+`http://127.0.0.1:8001/stitch` for a montage of recent recognised captures.
+The ONNX server saves every valid raw upload, annotated successes and result JSON.
+The montage filters by run_id (latest run by default) and keeps one successful
+tile per obstacle, even if multiple obstacles share the same image ID.
+Pi originals (every attempt) are under `/home/nat/SC2079-MDP/rpi/captures/`.
 
 The Pi keeps the camera running for the whole run (`RPi/camera.py`), so each
-obstacle stop is one frame grab (~0.1 s) plus recognition, not a 2-3 s cold
-`rpicam-still` start. The log prints `Obstacle N: stop took X.Xs`. Stop
-`videostream/main.py` before Task 1, or it falls back to `rpicam-still`.
+photo is a ~0.3 s frame grab instead of a 2-3 s cold `rpicam-still` start, and
+each obstacle gets up to 3 photos, stopping at the first recognised one. The log
+prints `Obstacle N: stop took X.Xs`. Stop `videostream/main.py` before Task 1,
+or the Pi falls back to `rpicam-still`.
 
 Task 1 is `RPi/task1_main.py` -> `task1_controller.py`; `--manual` is a separate
 arrow test. The optimized planner uses one visit-order calculation and caches
 directed segments, including failures. Turn padding follows the latest bare
 speed-50 measurements. It keeps the 180-second planning timeout and
-working Ctrl-C shutdown. STM firmware is unchanged.
+working Ctrl-C shutdown. STM firmware is unchanged; the laptop now defaults to
+the released ONNX CV model, which becomes active after a server restart.
 Git pushes do not deploy the Pi or install the tablet app.
+
+[ONNX photo storage, tablet result handoff and deployment steps](docs/TASK1_ONNX_HANDOFF_2026-10-08.md)
 
 ```powershell
 .\Algo\.venv-cv-win\Scripts\python.exe -B RPi/tests/test_offline.py

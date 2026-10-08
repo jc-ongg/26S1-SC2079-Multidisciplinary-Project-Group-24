@@ -16,6 +16,7 @@ from typing import Optional
 import unittest
 from unittest.mock import Mock, mock_open, patch
 from path_plan import parse_plan
+from recognition import normalize_recognition
 
 
 class CountingLock:
@@ -55,6 +56,7 @@ class Task1CVLockTests(unittest.TestCase):
             'subprocess': types.SimpleNamespace(run=self.capture, CalledProcessError=subprocess.CalledProcessError),
             'requests': self.http, 'API_IP_IMAGE': 'mock-cv', 'API_PORT_IMAGE': 8001,
             'SYMBOL_MAP': {},
+            'normalize_recognition': normalize_recognition,
             'AndroidMessage': lambda cat, value: types.SimpleNamespace(cat=cat, value=value),
             'API_IP': 'mock-algo', 'API_PORT': 8000, 'parse_plan': parse_plan,
             'CAPTURE_DIR': Path(self.capture_folder.name),
@@ -79,6 +81,7 @@ class Task1CVLockTests(unittest.TestCase):
         self.bot.stm_link = Mock()
         self.bot.failed_obstacles = []
         self.bot.success_obstacles = []
+        self.bot.recognized_images = {}
         self.bot.obstacles = {1: {'id': 1, 'x': 10, 'y': 10, 'd': 4}}
         self.bot.current_location = {'x': 5, 'y': 5, 'd': 0}
         self.bot.failed_attempt = True
@@ -91,6 +94,27 @@ class Task1CVLockTests(unittest.TestCase):
         response.status_code = 200
         response.json.return_value = {'image_id': image_id, 'obstacle_id': numeric}
         return response
+
+    def test_modern_result_updates_tablet_and_cached_obstacle_is_not_recaptured(self):
+        response = self.response()
+        response.json.return_value = {'image_id': 'RIGHT', 'mdp_image_id': 38,
+                                      'accepted': True, 'target_obstacle_id': '1', 'run_id': 'abc'}
+        self.http.post.return_value = response
+        self.bot.failed_obstacles = ['1']
+        self.bot.movement_lock.acquire()
+        self.bot.snap_and_rec('1', 'R')
+        self.assertEqual(self.bot.failed_obstacles, [])
+        self.assertEqual(self.bot.recognized_images, {'1': '38'})
+        self.assertEqual(self.bot.success_obstacles, ['1'])
+        self.assertEqual(self.http.post.call_args.kwargs['data']['signal'], 'R')
+        targets = [message.value for message in self.bot.android_queue.queue if message.cat == 'image-rec']
+        self.assertEqual(targets, [{'obstacle_id': '1', 'image_id': '38'}])
+        self.bot.snap_and_rec('1', 'R')
+        self.assertEqual(self.http.post.call_count, 1)
+        self.bot._replay_recognized_targets()
+        targets = [message.value for message in self.bot.android_queue.queue if message.cat == 'image-rec']
+        self.assertEqual(len(targets), 3)
+        self.assertTrue(self.bot.movement_lock.locked())
 
     def test_onnx_no_detection_404_is_retried_before_success(self):
         missing = self.response()
@@ -108,7 +132,7 @@ class Task1CVLockTests(unittest.TestCase):
         with self.assertRaises(StopIteration):
             self.bot.command_follower()
 
-    def test_one_photo_plus_one_retry_finish_before_fin_and_release_once(self):
+    def test_three_photos_finish_before_fin_and_release_once(self):
         def predict(*args, **kwargs):
             self.assertTrue(self.bot.movement_lock.locked())
             # FIN has not even been dequeued while camera retries are active.
@@ -116,8 +140,8 @@ class Task1CVLockTests(unittest.TestCase):
             return self.response()
         self.http.post.side_effect = predict
         self.run_commands('SNAP1_C', 'FIN')
-        self.assertEqual(self.http.post.call_count, 2)
-        self.assertEqual(self.capture.call_count, 2)
+        self.assertEqual(self.http.post.call_count, 3)
+        self.assertEqual(self.capture.call_count, 3)
         self.assertEqual(self.bot.failed_obstacles, ['1'])
         self.assertEqual(self.bot.movement_lock.releases, 2)  # SNAP then FIN
         self.assertFalse(self.bot.movement_lock.locked())
@@ -156,7 +180,7 @@ class Task1CVLockTests(unittest.TestCase):
         self.assertFalse(self.bot.unpause.is_set())
         self.assertEqual(self.bot.movement_lock.releases, 1)
 
-    def test_failed_second_visit_still_finishes_after_four_total_photos(self):
+    def test_failed_second_visit_still_finishes_after_six_total_photos(self):
         initial = [{'command': command, 'pose': None, 'revision': 1} for command in ('SNAP1', 'FIN')]
         pending = deque(initial)
         def get_command():
@@ -176,7 +200,7 @@ class Task1CVLockTests(unittest.TestCase):
         self.http.post.side_effect = request
         with self.assertRaises(StopIteration):
             self.bot.command_follower()
-        self.assertEqual(self.capture.call_count, 4)
+        self.assertEqual(self.capture.call_count, 6)  # 3 per visit
         self.assertEqual(sum(c.args[0].endswith('/path') for c in self.http.post.call_args_list), 1)
         self.assertEqual(self.bot.failed_obstacles, ['1'])
         self.assertEqual(self.bot.plan_state['status'], 'finished')

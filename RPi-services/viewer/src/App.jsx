@@ -31,8 +31,8 @@ function normalise(data) {
     // cls_id is the mapped image number the checklist asks us to label with;
     // cls_name is the human-readable symbol (A, B, stop, ...).
     return [...extras, ...data.detections.map((d) => ({
-      image_id: d.cls_id,
-      label: d.cls_name,
+      image_id: d.cls_name || String(d.cls_id),
+      obstacle_id: d.cls_id,
       conf: d.conf,
       xyxy: d.xyxy,
     }))]
@@ -211,7 +211,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>MDP Group 6 — Vision</h1>
+        <h1>MDP Group 24 — Vision</h1>
         <div className="pills">
           <span className={`pill ${streamUp ? 'ok' : 'bad'}`}>
             stream {streamUp ? 'live' : 'down'}
@@ -219,6 +219,7 @@ export default function App() {
           <span className={`pill ${health ? 'ok' : 'bad'}`}>
             api {health ? health.mode?.toLowerCase() ?? 'up' : 'down'}
           </span>
+          {health?.model && <span className="pill muted">model {health.model.split(/[\\/]/).pop()}</span>}
           {live && <span className="pill ok">{fps.toFixed(1)} fps</span>}
           {latency != null && <span className="pill muted">{latency} ms</span>}
         </div>
@@ -295,7 +296,7 @@ export default function App() {
             <div className="result">
               <div className="big">{best.image_id}</div>
               <dl>
-                <div><dt>obstacle id</dt><dd>{best.obstacle_id ?? '—'}</dd></div>
+                <div><dt>image id</dt><dd>{best.obstacle_id ?? '—'}</dd></div>
                 <div><dt>confidence</dt><dd>{(best.conf * 100).toFixed(1)}%</dd></div>
                 <div><dt>boxes</dt><dd>{detections.length}</dd></div>
               </dl>
