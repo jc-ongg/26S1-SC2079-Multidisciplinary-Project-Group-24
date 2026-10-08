@@ -18,10 +18,10 @@ Speed 50, the 10 cm planner/tablet grid and 40 cm turn clearance are unchanged.
 6. Android stores the ID in BluetoothSession, updates the map and chat, and
    suppresses duplicate replay entries. Sending a fresh map clears previous IDs.
 
-A photo by itself does not count as recognised. The current single-photo trial
-takes one photo per visit without immediate recapture, with at most one revisit
-pass (two photos maximum per revisited obstacle). Results from separate photos
-are not compared or combined. Accepted obstacles stay as
+A photo by itself does not count as recognised. The restored policy takes up to
+three photos per visit, stopping at the first accepted result, with at most one
+revisit pass (six photos maximum per revisited obstacle). Results from separate
+photos are not compared or combined. Accepted obstacles stay as
 physical obstacles in Algo collision checking and are not targeted on revisits.
 The Pi can resend cached accepted IDs after a Bluetooth disconnect.
 
@@ -49,12 +49,16 @@ inference inside the Pi's first-photo timeout.
 
 ## Deploy manually
 
-The Pi controller, recognition helper and fast-camera helper were deployed for
-the single-photo trial on 8 October 2026. Their checksums, imports, one-photo
+The Pi controller, recognition helper and fast-camera helper were previously
+deployed for the single-photo trial on 8 October 2026. Their checksums, imports, one-photo
 limit and numeric TARGET framing were verified; Task 1 was left stopped.
 Picamera2 is installed. The rollback copy is in
 /home/nat/SC2079-MDP/rpi/backups/single-photo-2026-10-08/.
 The earlier handoff backup is retained in backups/onnx-handoff-2026-10-08/.
+The subsequent update restores three photos per visit. Restart Task 1 to load
+the restored setting; a process that was already running still uses its earlier
+setting. The single-photo controller is backed up in
+backups/three-photo-2026-10-08/ before replacement.
 The commands below are also available for future manual deployments.
 Run from the repository root. For future Pi updates, copy task1_controller.py,
 recognition.py and camera.py together.
@@ -110,3 +114,8 @@ The later single-photo trial passed five focused checks in 0.10 seconds:
 one upload per visit, NA/404 without recapture, one bounded revisit, tablet TARGET
 delivery and warm capture. Pi staging and deployed imports also passed without
 opening hardware. The camera and Task 1 program were not started during deployment.
+
+The three-photo policy was subsequently restored. Five focused capture/revisit
+checks passed in 0.18 seconds, and staged/deployed Pi imports verified the limit
+of three. The running Task 1 process was left untouched; restart it to activate
+the restored setting. Turn clearance remains 40 cm and arena centre limits 1-18.

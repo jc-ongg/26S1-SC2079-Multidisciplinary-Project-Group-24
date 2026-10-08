@@ -49,7 +49,7 @@ Tests mock hardware; Linux also exercises real Ctrl-C/worker/Manager shutdown.
 [Current setup and rollback backups](../docs/TASK1_ROLLBACK_2026-10-07.md)
 [Current measured turn settings and planner performance](../docs/TASK1_SETTINGS_2026-10-07.md)
 
-Photo policy: one photo per visit with no immediate retry, and at most one
-revisit pass (two photos total per revisited obstacle).
+Photo policy: up to three photos per visit, stopping at the first recognised
+result, and at most one revisit pass (six photos total per revisited obstacle).
 Partial recognition and an
 unavailable revisit now send finished normally. See [photo/stop update](../docs/TASK1_PHOTO_STOP_2026-10-07.md).

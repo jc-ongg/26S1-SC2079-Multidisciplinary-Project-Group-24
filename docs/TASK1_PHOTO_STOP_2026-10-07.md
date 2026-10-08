@@ -1,7 +1,7 @@
 # Task 1 photo retry and partial-finish fix - 2026-10-07
 
-As of 8 October, the current trial takes **one photo per visit** with no immediate
-recapture and keeps the camera open between scans. One revisit pass allows at most two photos
+As of 8 October, the merged source takes **up to three photos per visit** and
+keeps the camera open between scans. One revisit pass allows at most six photos
 per revisited obstacle. See [current deployment steps](TASK1_ONNX_HANDOFF_2026-10-08.md).
 The finish behavior described below is retained; its original deployment record
 used the earlier one-photo-plus-one-retry policy.

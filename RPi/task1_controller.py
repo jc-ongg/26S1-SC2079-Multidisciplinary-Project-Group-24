@@ -25,7 +25,7 @@ from camera import WarmCamera
 # This is a completion watchdog, not an inter-command animation delay.
 ACK_TIMEOUT = 60
 ALGO_TIMEOUT = (3, 180)  # Connection timeout, then up to three minutes for planning.
-CAPTURE_ATTEMPTS = 1  # Single-photo trial: one capture per visit, with no immediate retry.
+CAPTURE_ATTEMPTS = 3  # Up to 3 photos; stops at the first recognised one (warm camera: ~1 s each).
 CAPTURE_TIMEOUT = 10
 IMAGE_API_TIMEOUT = (3, 10)
 CAPTURE_DIR = Path(__file__).resolve().parent / 'captures'
