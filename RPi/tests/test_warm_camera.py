@@ -64,6 +64,22 @@ class WarmCameraTests(unittest.TestCase):
             cam = camera.WarmCamera(Mock())
         self.assertFalse(cam.capture('a.jpg'))
 
+    def test_configuration_failure_releases_sensor_before_fallback(self):
+        with patch.dict(sys.modules, {'picamera2': fake_module()}), \
+                patch.object(FakePicamera2, 'configure', side_effect=RuntimeError('configuration failed')):
+            cam = camera.WarmCamera(Mock())
+        self.assertTrue(FakePicamera2.instances[0].closed)
+        self.assertFalse(cam.capture('a.jpg'))
+
+    def test_stop_failure_still_closes_sensor(self):
+        with patch.dict(sys.modules, {'picamera2': fake_module()}):
+            cam = camera.WarmCamera(Mock())
+        fake = FakePicamera2.instances[0]
+        with patch.object(fake, 'stop', side_effect=RuntimeError('stop failed')):
+            cam.close()
+        self.assertTrue(fake.closed)
+        self.assertFalse(cam.capture('a.jpg'))
+
     def test_failed_capture_closes_camera_and_falls_back_for_good(self):
         with patch.dict(sys.modules, {'picamera2': fake_module()}):
             cam = camera.WarmCamera(Mock())

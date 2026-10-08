@@ -47,22 +47,26 @@ These compare earlier observed runs with the new server, rather than controlled
 repeated benchmarks. Physical run time and movement accuracy are separate.
 
 Flow remains Send Map → READY → Start. Valid partial routes enable Start and
-skip omitted targets. Map edits invalidate readiness. Photo policy is one
-photo plus one retry per visit, and at most one automatic revisit pass for
-visited targets whose recognition failed: maximum four photos per revisited
+skip omitted targets. Map edits invalidate readiness. As updated on 8 October,
+photo policy is up to three photos per visit, stopping at the first accepted
+result, and at most one automatic revisit pass for visited targets whose
+recognition failed: maximum six photos per revisited
 obstacle. Targets omitted by planning do not enter the revisit list. Missing
 images or an unavailable revisit still finish normally and stop the timer;
 an actual motor fault halts dispatch.
 
 Timeouts: Algo connect/read 3/180 s; Android READY wait 190 s in the updated
-APK; motor completion watchdog 60 s; camera operation 10 s; image API
+APK; motor completion watchdog 60 s; cold rpicam-still operation 10 s; image API
 connect/read 3/10 s. The tablet timer starts at Start and continues through
 capture/revisit planning. Official preparation overrun is not added automatically.
 
 Laptop endpoints remain Algo8000 and CV8001. The last verified laptop hotspot
-address is 192.168.50.181; the Pi is 192.168.50.5. CV remains Algo/best.pt with
-confidence 0.30. Laptop images/montages stay in output/cv-trial/ and Pi originals
+address is 192.168.50.181; the Pi is 192.168.50.5. CV now uses only
+RPi-services/image-api/best_v11i_m.onnx with confidence 0.25.
+Laptop images/montages stay in RPi-services/image-api/own_results/ and Pi originals
 in /home/nat/SC2079-MDP/rpi/captures/.
+Fast capture keeps Picamera2 open between scans; rpicam-still remains the fallback.
+Deploy camera.py with task1_controller.py and recognition.py for this update.
 
 Planner and padding changes need only a laptop service refresh. The earlier
 Android 190-second wait fix still requires installing its updated APK if the

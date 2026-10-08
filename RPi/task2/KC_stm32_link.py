@@ -436,8 +436,8 @@ class VisionClient:
         if requests is None:
             raise Task2Error("requests is not installed. Run: pip3 install requests")
         self.timeout = timeout
-        # Recognition is image-api + best_v11i_m.onnx only. Algo's /infer
-        # (best.pt) was removed: it read arrows badly.
+        # Task 2 calls image-api + best_v11i_m.onnx directly. Algo's /infer
+        # remains a compatibility proxy to the same ONNX service.
         self.backends = [
             ("image-api", f"http://{laptop_ip}:8001/predict"),
         ]

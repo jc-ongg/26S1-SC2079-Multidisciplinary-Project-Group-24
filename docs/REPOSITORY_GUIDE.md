@@ -48,7 +48,10 @@ old environments. See the stash audit for the local-only recovery refs.
 
 The root .gitignore excludes virtual environments, generated captures/logs,
 build output and machine-local IDE settings. These were not erased from disk.
-The existing tracked Algo/best.pt remains in Git; new weights are ignored.
+As of 8 October, Algo/best.pt and its trial server have been removed from the
+current branch. The only recognition model is best_v11i_m.onnx, downloaded from
+the cv-model-v11i release into RPi-services/image-api/. Weights are ignored;
+earlier tracked models remain recoverable from Git history.
 
 On this laptop, repository-local `core.excludesFile` also points to the ignored
 `.gitignore-local` file. These rules remain active when inspecting an old tag

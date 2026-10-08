@@ -28,13 +28,15 @@ class WarmCamera:
         try:
             from picamera2 import Picamera2
             cam = Picamera2()
+            self.cam = cam
             cam.configure(cam.create_still_configuration())
             cam.options["quality"] = JPEG_QUALITY
             cam.start()
             time.sleep(WARMUP_S)
-            self.cam = cam
             self.logger.info("Camera kept running for the run (fast capture).")
         except Exception as exc:
+            # Release a partially opened sensor before trying rpicam-still.
+            self.close()
             self.logger.warning(
                 f"Warm camera unavailable ({exc}); using rpicam-still per photo. "
                 "Is videostream/main.py still holding the camera?")
@@ -57,6 +59,9 @@ class WarmCamera:
         if cam is not None:
             try:
                 cam.stop()
+            except Exception:
+                pass
+            try:
                 cam.close()
             except Exception:
                 pass

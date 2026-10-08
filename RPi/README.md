@@ -35,7 +35,9 @@ a Bluetooth diagnostic. run_week8.sh launches the same Task1 program.
 archive/ holds old A5/sensor experiments and numbered Task2 versions. The
 preserved KC monitor and helpers are in task2/; its motion logic is unchanged.
 A Git push does not deploy this non-Git Pi directory.
-Deploy both task1_controller.py and recognition.py for this handoff update.
+Deploy task1_controller.py, recognition.py and camera.py together for this update.
+System Python needs Picamera2 for fast capture; rpicam-still remains the fallback.
+Stop the camera preview before starting Task 1.
 
 [ONNX handoff deployment](../docs/TASK1_ONNX_HANDOFF_2026-10-08.md)
 
@@ -47,6 +49,7 @@ Tests mock hardware; Linux also exercises real Ctrl-C/worker/Manager shutdown.
 [Current setup and rollback backups](../docs/TASK1_ROLLBACK_2026-10-07.md)
 [Current measured turn settings and planner performance](../docs/TASK1_SETTINGS_2026-10-07.md)
 
-Photo policy: one initial photo plus one retry per visit, and at most one revisit
-pass (four photos total per revisited obstacle). Partial recognition and an
+Photo policy: up to three photos per visit, stopping at the first recognised
+result, and at most one revisit pass (six photos total per revisited obstacle).
+Partial recognition and an
 unavailable revisit now send finished normally. See [photo/stop update](../docs/TASK1_PHOTO_STOP_2026-10-07.md).

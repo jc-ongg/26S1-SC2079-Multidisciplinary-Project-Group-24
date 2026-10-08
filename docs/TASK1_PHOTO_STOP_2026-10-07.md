@@ -1,6 +1,12 @@
 # Task 1 photo retry and partial-finish fix - 2026-10-07
 
-The current Pi takes **one initial photo plus one retry per visit**. It accepts
+As of 8 October, the merged source takes **up to three photos per visit** and
+keeps the camera open between scans. One revisit pass allows at most six photos
+per revisited obstacle. See [current deployment steps](TASK1_ONNX_HANDOFF_2026-10-08.md).
+The finish behavior described below is retained; its original deployment record
+used the earlier one-photo-plus-one-retry policy.
+
+The 7 October version took **one initial photo plus one retry per visit**. It accepts
 the first non-NA result and stops taking pictures for that visit. One automatic
 revisit pass remains for failed obstacles, so a revisited obstacle can have up
 to four photos total. Camera/API errors end the current visit's attempts early.
