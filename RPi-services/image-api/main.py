@@ -87,6 +87,48 @@ def run_key(run_id):
     return hashlib.sha256(run_id.encode('utf-8')).hexdigest()[:12]
 
 
+def annotate_target(frame, target):
+    """Draw the recognised symbol and numeric image ID beside its box."""
+    annotated = np.array(frame)
+    width, height = frame.size
+    x1, y1, x2, y2 = map(int, target['xyxy'])
+    green = (0, 255, 0)
+    scale = max(width, height) / 1000
+    thickness = max(3, round(4 * scale))
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = max(0.8, 1.1 * scale)
+    font_stroke = max(2, round(2.5 * scale))
+    padding = max(4, round(12 * scale))
+    lines = [target['cls_name'], f"Image id {target['cls_id']}"]
+    sizes = [cv2.getTextSize(line, font, font_scale, font_stroke)[0] for line in lines]
+    line_height = max(h for _, h in sizes)
+    line_gap = line_height + padding
+    panel_width = max(w for w, _ in sizes) + 2 * padding
+    panel_height = line_gap * len(lines) + padding
+
+    # Prefer the right side, then the left; clamp the fallback inside the frame.
+    panel_x = x2 + padding
+    if panel_x + panel_width > width:
+        panel_x = x1 - padding - panel_width
+    if panel_x < 0:
+        panel_x = max(0, min(x1 + padding, width - panel_width))
+    panel_y = max(0, min(y1, height - panel_height))
+    cv2.rectangle(annotated, (x1, y1), (x2, y2), green, thickness)
+    cv2.rectangle(annotated, (panel_x, panel_y),
+                  (panel_x + panel_width, panel_y + panel_height), green, -1)
+    for index, line in enumerate(lines):
+        baseline = panel_y + padding + line_height + index * line_gap
+        cv2.putText(annotated, line, (panel_x + padding, baseline),
+                    font, font_scale, (0, 0, 0), font_stroke, cv2.LINE_AA)
+
+    caption = f"{target['cls_name']} / Image id {target['cls_id']} ({target['conf']:.2f})"
+    caption_scale = max(0.7, width / 1000)
+    caption_height = cv2.getTextSize(caption, font, caption_scale, thickness)[0][1]
+    cv2.putText(annotated, caption, (10, caption_height + padding), font,
+                caption_scale, green, thickness, cv2.LINE_AA)
+    return Image.fromarray(annotated)
+
+
 def create_app(model=None, output_dir=OUTPUT_DIR):
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -185,15 +227,8 @@ def create_app(model=None, output_dir=OUTPUT_DIR):
                               obstacle_id=str(number), image_id=target['cls_name'],
                               conf=target['conf'], xyxy=target['xyxy'])
                 record['detections'] = [target] + [item for item in detections if item is not target]
-                annotated = np.array(frame)
-                x1, y1, x2, y2 = map(int, target['xyxy'])
-                thickness = max(3, round(max(frame.size) / 300))
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), thickness)
-                label = f"{target['cls_name']} / Image id {number} ({target['conf']:.2f})"
-                cv2.putText(annotated, label, (10, 40), cv2.FONT_HERSHEY_SIMPLEX,
-                            max(0.7, frame.width / 1000), (0, 255, 0), thickness, cv2.LINE_AA)
                 annotated_name = capture_id + '_annotated.jpg'
-                Image.fromarray(annotated).save(output_dir / annotated_name, quality=95)
+                annotate_target(frame, target).save(output_dir / annotated_name, quality=95)
                 record.update(annotated_file=annotated_name, annotated_url='/files/' + annotated_name)
             save_record(record)
             logger.info('Run %s obstacle %s -> %s (image %s)', run_id,
