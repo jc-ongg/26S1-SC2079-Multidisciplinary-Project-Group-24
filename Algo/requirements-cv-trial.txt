@@ -1,7 +1,0 @@
-flask>=3.0,<4
-ultralytics>=8.3,<9
-Pillow>=10,<13
-numpy>=1.24,<3
-# Also allow the unchanged Algo/main.py to run in this environment.
-flask-cors>=4,<7
-python-tsp>=0.4,<1

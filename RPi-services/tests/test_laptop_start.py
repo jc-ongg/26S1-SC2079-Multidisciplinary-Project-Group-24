@@ -11,12 +11,11 @@ import laptop_start
 
 
 class LaptopStartTests(unittest.TestCase):
-    def args(self, backend):
-        return SimpleNamespace(python=sys.executable, cv_backend=backend,
-                               algo_port=8000, image_port=8001)
+    def args(self):
+        return SimpleNamespace(python=sys.executable, algo_port=8000, image_port=8001)
 
     def test_single_configuration_has_no_overlay_environment(self):
-        specs, _ = laptop_start.service_specs(self.args('trial'))
+        specs, _ = laptop_start.service_specs(self.args())
         self.assertEqual(specs[0][3], {'ALGO_PORT': '8000', 'CV_BASE_URL': 'http://127.0.0.1:8001'})
 
     def test_obsolete_profile_switches_are_rejected_before_spawn(self):
@@ -28,15 +27,24 @@ class LaptopStartTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, 2)
                 spawn.assert_not_called()
 
-    def test_trial_uses_explicit_fallback_and_port(self):
-        specs, paths = laptop_start.service_specs(self.args('trial'))
-        self.assertEqual(specs[1][1][1:], ['cv_trial_server.py', '--port', '8001'])
-        self.assertEqual(paths[-1].name, 'best.pt')
-
-    def test_onnx_uses_original_model(self):
-        specs, paths = laptop_start.service_specs(self.args('onnx'))
+    def test_only_onnx_image_api_is_started(self):
+        specs, paths = laptop_start.service_specs(self.args())
+        self.assertEqual(specs[1][0], 'image-api')
         self.assertEqual(specs[1][1][1:], ['main.py'])
         self.assertEqual(paths[-1].name, 'best_v11i_m.onnx')
+
+    def test_best_pt_backend_is_rejected(self):
+        with patch.object(sys, 'argv', ['start', '--cv-backend', 'trial']), \
+                patch.object(laptop_start.subprocess, 'Popen') as spawn:
+            with self.assertRaises(SystemExit) as error:
+                laptop_start.main()
+            self.assertEqual(error.exception.code, 2)
+            spawn.assert_not_called()
+
+    def test_no_best_pt_anywhere_in_repo(self):
+        repo = ROOT.parent
+        self.assertFalse((repo / 'Algo' / 'best.pt').exists())
+        self.assertFalse((repo / 'Algo' / 'cv_trial_server.py').exists())
 
     def test_check_never_starts_processes(self):
         with patch.object(sys, 'argv', ['start', '--check']), patch.object(laptop_start, 'up', return_value=False), \

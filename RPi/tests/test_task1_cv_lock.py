@@ -132,7 +132,7 @@ class Task1CVLockTests(unittest.TestCase):
         with self.assertRaises(StopIteration):
             self.bot.command_follower()
 
-    def test_one_photo_plus_one_retry_finish_before_fin_and_release_once(self):
+    def test_three_photos_finish_before_fin_and_release_once(self):
         def predict(*args, **kwargs):
             self.assertTrue(self.bot.movement_lock.locked())
             # FIN has not even been dequeued while camera retries are active.
@@ -140,8 +140,8 @@ class Task1CVLockTests(unittest.TestCase):
             return self.response()
         self.http.post.side_effect = predict
         self.run_commands('SNAP1_C', 'FIN')
-        self.assertEqual(self.http.post.call_count, 2)
-        self.assertEqual(self.capture.call_count, 2)
+        self.assertEqual(self.http.post.call_count, 3)
+        self.assertEqual(self.capture.call_count, 3)
         self.assertEqual(self.bot.failed_obstacles, ['1'])
         self.assertEqual(self.bot.movement_lock.releases, 2)  # SNAP then FIN
         self.assertFalse(self.bot.movement_lock.locked())
@@ -180,7 +180,7 @@ class Task1CVLockTests(unittest.TestCase):
         self.assertFalse(self.bot.unpause.is_set())
         self.assertEqual(self.bot.movement_lock.releases, 1)
 
-    def test_failed_second_visit_still_finishes_after_four_total_photos(self):
+    def test_failed_second_visit_still_finishes_after_six_total_photos(self):
         initial = [{'command': command, 'pose': None, 'revision': 1} for command in ('SNAP1', 'FIN')]
         pending = deque(initial)
         def get_command():
@@ -200,7 +200,7 @@ class Task1CVLockTests(unittest.TestCase):
         self.http.post.side_effect = request
         with self.assertRaises(StopIteration):
             self.bot.command_follower()
-        self.assertEqual(self.capture.call_count, 4)
+        self.assertEqual(self.capture.call_count, 6)  # 3 per visit
         self.assertEqual(sum(c.args[0].endswith('/path') for c in self.http.post.call_args_list), 1)
         self.assertEqual(self.bot.failed_obstacles, ['1'])
         self.assertEqual(self.bot.plan_state['status'], 'finished')
@@ -237,6 +237,38 @@ class Task1CVLockTests(unittest.TestCase):
         self.assertEqual(targets, [{'obstacle_id': '1', 'image_id': '39'}])
         self.assertEqual(self.http.post.call_args.kwargs['timeout'], (3, 10))
         self.assertEqual(self.capture.call_args.kwargs['timeout'], 10)
+
+    def test_warm_camera_replaces_rpicam_still(self):
+        self.bot.camera = Mock()
+        self.bot.camera.capture.return_value = True
+        self.http.post.return_value = self.response('RIGHT', '38')
+        self.run_commands('SNAP1', 'FIN')
+        self.bot.camera.capture.assert_called_once()
+        self.capture.assert_not_called()  # no cold-start rpicam-still
+        self.assertEqual(self.bot.success_obstacles, ['1'])
+        self.assertEqual(self.bot.movement_lock.releases, 2)
+
+    def test_warm_camera_failure_falls_back_to_rpicam_still(self):
+        self.bot.camera = Mock()
+        self.bot.camera.capture.return_value = False
+        self.http.post.return_value = self.response('RIGHT', '38')
+        self.run_commands('SNAP1', 'FIN')
+        self.assertEqual(self.capture.call_count, 1)
+        self.assertEqual(self.capture.call_args.args[0][0], 'rpicam-still')
+        self.assertEqual(self.bot.success_obstacles, ['1'])
+
+    def test_robot_waits_for_recognition_then_moves_on(self):
+        self.bot.camera = Mock()
+        self.bot.camera.capture.return_value = True
+        def predict(*args, **kwargs):
+            # Still stopped in front of the obstacle while recognising.
+            self.assertTrue(self.bot.movement_lock.locked())
+            return self.response('RIGHT', '38')
+        self.http.post.side_effect = predict
+        self.run_commands('SNAP1', 'FIN')
+        # A recognised image is never photographed again.
+        self.assertEqual(self.bot.camera.capture.call_count, 1)
+        self.assertFalse(self.bot.movement_lock.locked())
 
     def test_fin_retry_sees_failed_capture_before_requesting_new_path(self):
         self.bot.failed_attempt = False

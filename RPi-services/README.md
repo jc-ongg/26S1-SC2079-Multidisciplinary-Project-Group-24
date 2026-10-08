@@ -35,9 +35,8 @@ Keep Wi-Fi on the Pi hotspot and use the laptop's 192.168.50.x address.
 
 Place best_v11i_m.onnx from the cv-model-v11i release in image-api/.
 laptop_setup.py also supports fetching and checksum-verifying that release.
-To use the preserved Algo/best.pt fallback, add --cv-backend trial to the startup
-command; its output stays in output/cv-trial/. Changing the backend requires
-stopping the current servers and running the launcher again. Keep the launcher
+best_v11i_m.onnx is the only recognition model; Algo/best.pt and its trial
+server were removed (best.pt read arrows badly). Keep the launcher
 in the foreground so Ctrl-C stops both services; it never starts the Pi/camera.
 Use current Algo/Pi tests; laptop_verify.py's exact golden routes are historical.
 

@@ -17,6 +17,7 @@ from logger import prepare_logger
 from settings import API_IP, API_PORT, API_PORT_IMAGE, API_IP_IMAGE
 from path_plan import parse_plan
 from recognition import normalize_recognition
+from camera import WarmCamera
 
 # A missing STM completion pauses dispatch; it must never permit another move.
 # Camera retries run synchronously and do not use this motor ACK deadline.
@@ -24,7 +25,7 @@ from recognition import normalize_recognition
 # This is a completion watchdog, not an inter-command animation delay.
 ACK_TIMEOUT = 60
 ALGO_TIMEOUT = (3, 180)  # Connection timeout, then up to three minutes for planning.
-CAPTURE_ATTEMPTS = 2  # One initial photo plus one retry per visit.
+CAPTURE_ATTEMPTS = 3  # Up to 3 photos; stops at the first recognised one (warm camera: ~1 s each).
 CAPTURE_TIMEOUT = 10
 IMAGE_API_TIMEOUT = (3, 10)
 CAPTURE_DIR = Path(__file__).resolve().parent / 'captures'
@@ -127,7 +128,7 @@ class RaspberryPi:
             self.proc_recv_android = Process(target=run_worker, args=(self.recv_android,))
             self.proc_recv_stm32 = Process(target=run_worker, args=(self.recv_stm,))
             self.proc_android_sender = Process(target=run_worker, args=(self.android_sender,))
-            self.proc_command_follower = Process(target=run_worker, args=(self.command_follower,))
+            self.proc_command_follower = Process(target=run_worker, args=(self.command_follower_with_camera,))
             self.proc_rpi_action = Process(target=run_worker, args=(self.rpi_action,))
 
             # Start child processes
@@ -411,6 +412,17 @@ class RaspberryPi:
         self.android_queue.put(AndroidMessage('status', 'finished'))
         self.rpi_action_queue.put(PiAction(cat='stitch', value=''))
 
+    def command_follower_with_camera(self) -> None:
+        """
+        [Child Process] command_follower, holding the camera open for the run.
+        snap_and_rec runs in this process, so the camera must be opened here.
+        """
+        self.camera = WarmCamera(self.logger)
+        try:
+            self.command_follower()
+        finally:
+            self.camera.close()
+
     def command_follower(self) -> None:
         """
         [Child Process]
@@ -580,6 +592,7 @@ class RaspberryPi:
             self.android_queue.put(AndroidMessage('image-rec', {
                 'obstacle_id': obstacle_id, 'image_id': known_image}))
             return
+        started = time.time()
         self.logger.info(f"Capturing image for obstacle id: {obstacle_id}")
         self.android_queue.put(AndroidMessage(
             "info", f"Capturing image for obstacle id: {obstacle_id}"))
@@ -591,12 +604,16 @@ class RaspberryPi:
         for attempt in range(1, CAPTURE_ATTEMPTS + 1):
             try:
                 filename = str(CAPTURE_DIR / f'{prefix}_attempt-{attempt}.jpg')
-                capture_command = ['rpicam-still', '-e', 'jpg', '-n', '-t', '500', '-o', filename]
                 self.logger.info(f"Capturing obstacle {obstacle_id}: attempt {attempt}/{CAPTURE_ATTEMPTS}")
-                # Bound camera hangs and retain diagnostics without flooding
-                # the console with normal libcamera mode-selection messages.
-                subprocess.run(capture_command, check=True, timeout=CAPTURE_TIMEOUT,
-                               capture_output=True, text=True)
+                # Fast path: the camera kept running by command_follower_with_camera.
+                camera = getattr(self, 'camera', None)
+                if camera is None or not camera.capture(filename):
+                    # Cold start: ~2-3 s per photo. Bound camera hangs and keep
+                    # diagnostics without flooding the console with libcamera
+                    # mode-selection messages.
+                    capture_command = ['rpicam-still', '-e', 'jpg', '-n', '-t', '500', '-o', filename]
+                    subprocess.run(capture_command, check=True, timeout=CAPTURE_TIMEOUT,
+                                   capture_output=True, text=True)
                 with open(filename, 'rb') as image_file:
                     self.logger.debug("Requesting from image API")
                     response = requests.post(url, data={
@@ -633,6 +650,7 @@ class RaspberryPi:
             self.logger.info('Discarding recognition for a superseded run.')
             return
 
+        self.logger.info(f"Obstacle {obstacle_id}: stop took {time.time() - started:.1f}s")
         self.logger.info(f"results: {results}")
         self.logger.info(f"self.obstacles: {self.obstacles}")
         self.logger.info(
