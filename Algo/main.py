@@ -1,5 +1,4 @@
 import time
-from datetime import datetime
 from algo.algo import PathFinder
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
@@ -9,31 +8,15 @@ from car_animation import run_turtle_sim
 import queue
 import threading
 import turtle
-from PIL import Image, ImageOps
-import io
 from threading import Lock
 import ast
 import consts
 
-# Image recognition is NOT done here -- it runs on image-api (:8001) with
-# best_v11i_m.onnx, which reads the arrows and digits more reliably. This server
-# is for path planning only.
-#
-# The weights are therefore optional: if best.pt is absent the server still
-# starts and /path works normally, and /infer answers with a clear pointer
-# instead of a stack trace. Loading is lazy so a missing file costs nothing.
-MODEL_PATH = "./best.pt"
-IMAGE_API_HINT = "image recognition is served by image-api on :8001 (/predict)"
-yolo_model = None
-
-
-def get_yolo_model():
-    """Load best.pt on first use, or return None if it is not present."""
-    global yolo_model
-    if yolo_model is None and os.path.exists(MODEL_PATH):
-        from ultralytics import YOLO
-        yolo_model = YOLO(MODEL_PATH)
-    return yolo_model
+# All recognition uses the same CV service and released ONNX model.
+# /infer is a compatibility adapter; it never loads the old best.pt.
+import requests
+CV_BASE_URL = os.environ.get(
+    'CV_BASE_URL', 'http://127.0.0.1:' + os.environ.get('IMAGE_API_PORT', '8001')).rstrip('/')
 
 # Create upload directory if not exists
 UPLOAD_FOLDER = "uploads"
@@ -217,133 +200,44 @@ def path_finding():
 
 @app.route('/infer', methods=['POST'])
 def image_predict():
-    """
-    Receive image file, save it to disk,
-    run YOLO inference,
-    return detection results only.
-    """
-
-    t0 = time.time()
-
-    if 'file' not in request.files:
-        return jsonify({"ok": False, "error": "No file uploaded"}), 400
-
+    upload = request.files.get('file')
+    if upload is None:
+        upload = request.files.get('image')
+    if upload is None:
+        return jsonify(ok=False, error='Upload an image using file or image'), 400
+    started = time.monotonic()
     try:
-        file = request.files['file']
-        filename = file.filename
-        img_bytes = file.read()
-        img = Image.open(io.BytesIO(img_bytes))
-        img = ImageOps.exif_transpose(img).convert("RGB")
-
-        # Save original image with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name, ext = os.path.splitext(filename)
-        timestamped_filename = f"{name}_{timestamp}{ext}"
-        save_path = os.path.join(UPLOAD_FOLDER, timestamped_filename)
-        img.save(save_path)
-
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"Invalid image: {e}"}), 400
-
-    # =========================
-    # CLASS ID MAPPING
-    # =========================
-    CLS_MAP = {
-        0:  (20, 'A'),
-        1:  (21, 'B'),
-        # 2: Bullseye -> ignored
-        3:  (22, 'C'),
-        4:  (23, 'D'),
-        5:  (24, 'E'),
-        6:  (25, 'F'),
-        7:  (26, 'G'),
-        8:  (27, 'H'),
-        9:  (28, 'S'),
-        10: (29, 'T'),
-        11: (30, 'U'),
-        12: (31, 'V'),
-        13: (32, 'W'),
-        14: (33, 'X'),
-        15: (34, 'Y'),
-        16: (35, 'Z'),
-        17: (40, 'stop'),
-        18: (37, 'down'),
-        19: (18, '8'),
-        20: (15, '5'),
-        21: (14, '4'),
-        22: (39, 'left'),
-        23: (19, '9'),
-        24: (11, '1'),
-        25: (38, 'right'),
-        26: (17, '7'),
-        27: (16, '6'),
-        28: (13, '3'),
-        29: (12, '2'),
-        30: (36, 'up'),
-    }
-
-    # =========================
-    # YOLO INFERENCE
-    # =========================
-    model = get_yolo_model()
-    if model is None:
-        return jsonify({
-            "ok": False,
-            "error": f"/infer is disabled on this server -- {IMAGE_API_HINT}",
-        }), 503
-
-    result = model.predict(img, imgsz=640, conf=0.30, verbose=False)[0]
-
-    # Save annotated image (with bounding boxes)
-    annotated_array = result.plot()  # numpy array (BGR)
-    annotated_img = Image.fromarray(annotated_array[..., ::-1])  # BGR -> RGB
-    annotated_filename = f"{name}_{timestamp}_annotated{ext}"
-    annotated_save_path = os.path.join(UPLOAD_FOLDER, annotated_filename)
-    annotated_img.save(annotated_save_path)
-
-    detections = []
-
-    if result.boxes is not None and len(result.boxes) > 0:
-        for box in result.boxes:
-            cls_id = int(box.cls[0])
-            conf = float(box.conf[0])
-
-            # Skip if not in CLS_MAP (e.g. Bullseye)
-            if cls_id not in CLS_MAP:
-                continue
-
-            # Map to CLS_MAP
-            mapped_id, label = CLS_MAP[cls_id]
-
-            # Checklist A.2 wants a bounding rectangle drawn around the detected
-            # image on the PC, so the box coordinates have to leave the server.
-            xyxy = [round(float(v), 1) for v in box.xyxy[0].tolist()]
-
-            detections.append({
-                #"cls_id": cls_id,
-                "cls_id": mapped_id,
-                # "cls_name": (
-                #     names.get(cls_id, str(cls_id))
-                #     if isinstance(names, dict)
-                #     else str(cls_id)
-                # ),
-                "cls_name": label,
-                #"mapped_id": mapped_id,
-                #"label": label,
-                "conf": round(conf, 4),
-                "xyxy": xyxy
-            })
+        response = requests.post(
+            CV_BASE_URL + '/predict',
+            data={key: value for key, value in request.form.items()
+                  if key in ('run_id', 'target_obstacle_id', 'signal', 'attempt')},
+            files={'image': (upload.filename or 'frame.jpg', upload.stream,
+                             upload.content_type or 'image/jpeg')},
+            timeout=(3, 30))
+        result = response.json()
+        if not response.ok:
+            return jsonify(ok=False, error=result.get('error', 'CV recognition failed'),
+                           capture=result), response.status_code
+        detections = result.get('detections', [])
+        return jsonify(ok=True, n=len(detections), detections=detections,
+                       latency_ms=round((time.monotonic() - started) * 1000, 1),
+                       model=result.get('model'), capture=result)
+    except (requests.RequestException, ValueError) as exc:
+        return jsonify(ok=False, error=f'CV service unavailable: {exc}'), 503
 
 
+@app.route('/stitch', methods=['GET'])
+def image_stitch():
+    try:
+        response = requests.get(CV_BASE_URL + '/stitch',
+                                params=request.args.to_dict(), timeout=(3, 30))
+        headers = {'Content-Type': response.headers.get('Content-Type', 'application/json')}
+        if response.headers.get('X-Stitch-File'):
+            headers['X-Stitch-File'] = response.headers['X-Stitch-File']
+        return response.content, response.status_code, headers
+    except requests.RequestException as exc:
+        return jsonify(error=f'CV service unavailable: {exc}'), 503
 
-    latency = round((time.time() - t0) * 1000, 1)
-    print ("detections:", detections)
-    return jsonify({
-        "ok": True,
-        "n": len(detections),
-        "latency_ms": latency,
-        "detections": detections
-    })
 
 @app.route('/animate', methods=['POST'])
 def animate():

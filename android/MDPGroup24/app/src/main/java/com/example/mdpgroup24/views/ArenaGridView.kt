@@ -550,6 +550,13 @@ class ArenaGridView @JvmOverloads constructor(
         return true
     }
 
+    fun clearObstacleTargets() {
+        for (index in obstacles.indices) {
+            obstacles[index] = obstacles[index].copy(targetId = null)
+        }
+        invalidate()
+    }
+
     fun updateObstacleTarget(
         obstacleId: Int,
         targetId: Int

@@ -55,7 +55,8 @@ def service_specs(args):
                   if trial else [str(image_py), "main.py"])
     specs = [
         ("Algo", [str(algo_py), "main.py"], ALGO,
-         {"ALGO_PORT": str(args.algo_port)}, args.algo_port, "/status"),
+         {"ALGO_PORT": str(args.algo_port),
+          "CV_BASE_URL": f"http://127.0.0.1:{args.image_port}"}, args.algo_port, "/status"),
         ("cv-trial" if trial else "image-api", cv_command, ALGO if trial else IMAGE_API,
          {"IMAGE_API_PORT": str(args.image_port)}, args.image_port, "/health"),
     ]
@@ -80,7 +81,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--algo-port", type=int, default=8000)
     ap.add_argument("--image-port", type=int, default=8001)
-    ap.add_argument("--cv-backend", choices=("onnx", "trial"), default="trial")
+    ap.add_argument("--cv-backend", choices=("onnx", "trial"), default="onnx",
+                    help="CV model: released ONNX (default) or temporary best.pt fallback")
     ap.add_argument("--python", help="Existing Python environment for both services")
     ap.add_argument("--check", action="store_true", help="Check files/health only; start nothing")
     args = ap.parse_args()

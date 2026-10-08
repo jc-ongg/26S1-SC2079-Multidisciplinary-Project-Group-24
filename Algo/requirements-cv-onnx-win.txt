@@ -1,0 +1,8 @@
+# Use the existing Windows Algo/CV environment with the released ONNX backend.
+-r requirements-cv-trial.txt
+fastapi>=0.110,<1
+uvicorn>=0.27,<1
+python-multipart>=0.0.9,<1
+onnx>=1.16,<2
+onnxruntime>=1.18,<2
+pandas>=2.2,<3

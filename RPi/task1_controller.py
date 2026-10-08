@@ -16,6 +16,7 @@ from consts import SYMBOL_MAP
 from logger import prepare_logger
 from settings import API_IP, API_PORT, API_PORT_IMAGE, API_IP_IMAGE
 from path_plan import parse_plan
+from recognition import normalize_recognition
 
 # A missing STM completion pauses dispatch; it must never permit another move.
 # Camera retries run synchronously and do not use this motor ACK deadline.
@@ -103,6 +104,7 @@ class RaspberryPi:
         self.rs_flag = False
         self.success_obstacles = self.manager.list()
         self.failed_obstacles = self.manager.list()
+        self.recognized_images = self.manager.dict()
         self.obstacles = self.manager.dict()
         self.current_location = self.manager.dict()
         self.failed_attempt = False
@@ -115,8 +117,11 @@ class RaspberryPi:
             self.android_link.connect()
             self.android_queue.put(AndroidMessage(
                 'info', 'You are connected to the RPi!'))
+            if not self.check_api():
+                self.android_link.send(AndroidMessage(
+                    'error', 'Laptop Algo/CV is not ready with best_v11i_m.onnx. Start both laptop servers, then restart Task 1.'))
+                return
             self.stm_link.connect()
-            self.check_api()
 
             # Define child processes
             self.proc_recv_android = Process(target=run_worker, args=(self.recv_android,))
@@ -139,6 +144,7 @@ class RaspberryPi:
             # Send success message to Android
             self.android_queue.put(AndroidMessage('info', 'Robot is ready!'))
             self.android_queue.put(AndroidMessage('mode', 'path'))
+
             self.reconnect_android()
 
         except KeyboardInterrupt:
@@ -213,6 +219,8 @@ class RaspberryPi:
             self.android_queue.put(AndroidMessage(
                 "info", "You are reconnected!"))
             self.android_queue.put(AndroidMessage('mode', 'path'))
+            # Replay results whose send may have overlapped the disconnect.
+            self._replay_recognized_targets()
 
             self.android_dropped.clear()
 
@@ -251,6 +259,8 @@ class RaspberryPi:
                     self.plan_state['revision'] += 1
                     self.plan_state['id'] = value.get('plan_id', 'legacy')
                     self.plan_state['status'] = 'planning'
+                    if hasattr(self, 'recognized_images'):
+                        self.recognized_images.clear()
                     value['revision'] = self.plan_state['revision']
                 self.rpi_action_queue.put(PiAction('obstacles', value))
 
@@ -370,6 +380,11 @@ class RaspberryPi:
         self.current_location.update(pose)
         self.android_queue.put(AndroidMessage('location', dict(pose)))
 
+    def _replay_recognized_targets(self):
+        for obstacle_id, image_id in getattr(self, 'recognized_images', {}).items():
+            self.android_queue.put(AndroidMessage('image-rec', {
+                'obstacle_id': obstacle_id, 'image_id': image_id}))
+
     def _finish_run(self, revision=None, reason=None):
         """Finish after the last confirmed motor completion, including partial results.
 
@@ -466,13 +481,15 @@ class RaspberryPi:
                 if pose is not None:
                     self._report_location(pose)
                 # The Algo server tags snaps with a direction suffix, e.g.
-                # "SNAP1_L" / "SNAP2". Keep only the obstacle id.
-                obstacle_id = command.replace("SNAP", "").split("_")[0]
+                # "SNAP1_L" / "SNAP2". Preserve the camera alignment as well.
+                snap_parts = command[4:].split('_', 1)
+                obstacle_id = snap_parts[0]
+                camera_signal = snap_parts[1] if len(snap_parts) > 1 else 'C'
 
                 # Keep the command follower here until capture AND result
                 # bookkeeping finish. FIN cannot overtake camera retries.
                 try:
-                    self.snap_and_rec(obstacle_id=obstacle_id)
+                    self.snap_and_rec(obstacle_id=obstacle_id, signal=camera_signal)
                 finally:
                     self.movement_lock.release()
 
@@ -549,12 +566,20 @@ class RaspberryPi:
             elif action.cat == "stitch":
                 self.request_stitch()
 
-    def snap_and_rec(self, obstacle_id: str) -> None:
+    def snap_and_rec(self, obstacle_id: str, signal: str = 'C') -> None:
         """
         Capture and record a result while the caller owns movement_lock.
         This method never acquires/releases movement_lock itself.
         :param obstacle_id: the current obstacle ID
         """
+        obstacle_id = str(obstacle_id)
+        run_id = self.plan_state['id']
+        revision = self.plan_state['revision']
+        known_image = getattr(self, 'recognized_images', {}).get(obstacle_id)
+        if known_image is not None:
+            self.android_queue.put(AndroidMessage('image-rec', {
+                'obstacle_id': obstacle_id, 'image_id': known_image}))
+            return
         self.logger.info(f"Capturing image for obstacle id: {obstacle_id}")
         self.android_queue.put(AndroidMessage(
             "info", f"Capturing image for obstacle id: {obstacle_id}"))
@@ -574,7 +599,9 @@ class RaspberryPi:
                                capture_output=True, text=True)
                 with open(filename, 'rb') as image_file:
                     self.logger.debug("Requesting from image API")
-                    response = requests.post(url, data={'run_id': self.plan_state['id']}, files={
+                    response = requests.post(url, data={
+                        'run_id': run_id, 'target_obstacle_id': obstacle_id,
+                        'signal': signal, 'attempt': str(attempt)}, files={
                         'image': (filename, image_file, 'image/jpeg')
                     }, timeout=IMAGE_API_TIMEOUT)
                 # The original ONNX API uses 404 for a valid frame with no
@@ -584,9 +611,9 @@ class RaspberryPi:
                 else:
                     response.raise_for_status()
                     candidate = response.json()
-                if not isinstance(candidate, dict) or not candidate.get('image_id'):
-                    raise ValueError('Image API returned no image_id')
-                results = candidate
+                if isinstance(candidate, dict) and candidate.get('run_id') not in (None, run_id):
+                    raise ValueError('Image API returned a result for a different run')
+                results = normalize_recognition(candidate, obstacle_id)
                 self.logger.info(f"Image recognition results: {results}")
                 if results['image_id'] != 'NA':
                     break
@@ -599,12 +626,17 @@ class RaspberryPi:
                 self.android_queue.put(AndroidMessage(
                     'error', f'Image capture/recognition failed for obstacle {obstacle_id}.'))
                 results = {'image_id': 'NA', 'obstacle_id': 'NA'}
-                break
+                if attempt >= CAPTURE_ATTEMPTS:
+                    break
+
+        if self.plan_state['id'] != run_id or self.plan_state['revision'] != revision:
+            self.logger.info('Discarding recognition for a superseded run.')
+            return
 
         self.logger.info(f"results: {results}")
         self.logger.info(f"self.obstacles: {self.obstacles}")
         self.logger.info(
-            f"Image recognition results: {results} ({SYMBOL_MAP.get(results['image_id'])})")
+            f"Image recognition results: {results} ({SYMBOL_MAP.get(results['obstacle_id'])})")
 
         # Handle results - store just the obstacle_id since self.obstacles is empty
         if results['image_id'] == 'NA':
@@ -618,6 +650,8 @@ class RaspberryPi:
                 self.failed_obstacles.remove(obstacle_id)
             if obstacle_id not in self.success_obstacles:
                 self.success_obstacles.append(obstacle_id)
+            if hasattr(self, 'recognized_images'):
+                self.recognized_images[obstacle_id] = results['obstacle_id']
             self.logger.info(
                 f"self.success_obstacles: {self.success_obstacles}")
 
@@ -691,6 +725,8 @@ class RaspberryPi:
             if not retrying:
                 self.success_obstacles[:] = []
                 self.failed_obstacles[:] = []
+                if hasattr(self, 'recognized_images'):
+                    self.recognized_images.clear()
                 self.current_location.clear()
                 self.current_location.update(x=robot_x, y=robot_y, d=robot_dir)
             for command, pose in plan:
@@ -742,28 +778,20 @@ class RaspberryPi:
                     break
 
     def check_api(self) -> bool:
-        """Check whether image recognition and algorithm API server is up and running
-
-        Returns:
-            bool: True if running, False if not.
-        """
-        # Check image recognition API
-        url = f"http://{API_IP}:{API_PORT}/status"
+        """Require both planning and the released CV model before motor use."""
         try:
-            response = requests.get(url, timeout=1)
-            if response.status_code == 200:
-                self.logger.debug("API is up!")
-                return True
-            return False
-        # If error, then log, and return False
-        except ConnectionError:
-            self.logger.warning("API Connection Error")
-            return False
-        except requests.Timeout:
-            self.logger.warning("API Timeout")
-            return False
-        except Exception as e:
-            self.logger.warning(f"API Exception: {e}")
+            algo = requests.get(f"http://{API_IP}:{API_PORT}/status", timeout=3)
+            algo.raise_for_status()
+            cv = requests.get(f"http://{API_IP_IMAGE}:{API_PORT_IMAGE}/health", timeout=3)
+            cv.raise_for_status()
+            model_name = str(cv.json().get('model', '')).replace(chr(92), '/').rsplit('/', 1)[-1]
+            if model_name != 'best_v11i_m.onnx':
+                self.logger.error(f'Unexpected CV model: {model_name}; Task 1 requires best_v11i_m.onnx.')
+                return False
+            self.logger.info('Algo and best_v11i_m.onnx CV API are ready.')
+            return True
+        except (requests.RequestException, ValueError) as exc:
+            self.logger.error(f'Laptop API check failed: {exc}')
             return False
 
 

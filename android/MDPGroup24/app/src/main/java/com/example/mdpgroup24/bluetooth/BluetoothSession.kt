@@ -25,6 +25,7 @@ object BluetoothSession :
         fun onChatHistoryChanged() {}
         fun onTaskStatus(status: String) {}
         fun onManualCompleted(command: String) {}
+        fun onTargetsChanged() {}
     }
 
 
@@ -45,6 +46,12 @@ object BluetoothSession :
     val preparation = Task1Preparation()
     val chatHistory = ChatHistory()
     private val frames = BluetoothFrameBuffer()
+    private val recognizedTargets = mutableMapOf<Int, Int>()
+    fun targetSnapshot(): Map<Int, Int> = recognizedTargets.toMap()
+    fun clearTargets() {
+        recognizedTargets.clear()
+        listeners.toList().forEach { it.onTargetsChanged() }
+    }
     private var pendingManual: String? = null
     var task1StartedAt: Long? = null
         private set
@@ -80,6 +87,7 @@ object BluetoothSession :
             invalidatePreparation()
             return false
         }
+        clearTargets()
         recordChat(ChatHistory.Kind.SENT, "Map sent. Preparing Task 1 route.")
         // Pi planning can take 180 s, plus connection and reply delivery time.
         Handler(Looper.getMainLooper()).postDelayed({
@@ -165,6 +173,7 @@ object BluetoothSession :
             currentState,
             currentDevice
         )
+        listener.onTargetsChanged()
     }
 
 
@@ -301,7 +310,20 @@ object BluetoothSession :
         val batch = frames.feed(message)
         batch.text.forEach { chatHistory.add(ChatHistory.Kind.RECEIVED, it) }
         batch.frames.forEach { payload ->
-            chatHistory.receiveFrame(payload)
+            if (payload.startsWith("TARGET,")) {
+                val parts = payload.split(",").map { it.trim() }
+                val obstacle = parts.getOrNull(1)?.toIntOrNull()
+                val target = parts.getOrNull(2)?.toIntOrNull()
+                if (parts.size == 3 && obstacle != null && obstacle > 0 && target != null && target in 11..40) {
+                    if (recognizedTargets[obstacle] != target) {
+                        recognizedTargets[obstacle] = target
+                        chatHistory.receiveFrame(payload)
+                        listeners.toList().forEach { it.onTargetsChanged() }
+                    }
+                }
+            } else {
+                chatHistory.receiveFrame(payload)
+            }
             if (preparation.receive(payload)) {
                 listeners.toList().forEach { it.onPreparationChanged() }
                 if (preparation.canStart) {

@@ -17,7 +17,7 @@ class LaptopStartTests(unittest.TestCase):
 
     def test_single_configuration_has_no_overlay_environment(self):
         specs, _ = laptop_start.service_specs(self.args('trial'))
-        self.assertEqual(specs[0][3], {'ALGO_PORT': '8000'})
+        self.assertEqual(specs[0][3], {'ALGO_PORT': '8000', 'CV_BASE_URL': 'http://127.0.0.1:8001'})
 
     def test_obsolete_profile_switches_are_rejected_before_spawn(self):
         for flag in ['--movement-profile', '--forward-calibration', '--reverse-calibration']:
