@@ -48,9 +48,9 @@ repeated benchmarks. Physical run time and movement accuracy are separate.
 
 Flow remains Send Map → READY → Start. Valid partial routes enable Start and
 skip omitted targets. Map edits invalidate readiness. As updated on 8 October,
-photo policy is up to three photos per visit, stopping at the first accepted
-result, and at most one automatic revisit pass for visited targets whose
-recognition failed: maximum six photos per revisited
+the current single-photo trial takes one photo per visit without immediate
+recapture, and at most one automatic revisit pass for visited targets whose
+recognition failed: maximum two photos per revisited
 obstacle. Targets omitted by planning do not enter the revisit list. Missing
 images or an unavailable revisit still finish normally and stop the timer;
 an actual motor fault halts dispatch.

@@ -53,7 +53,8 @@ Pi originals (every attempt) are under `/home/nat/SC2079-MDP/rpi/captures/`.
 
 The Pi keeps the camera running for the whole run (`RPi/camera.py`), so each
 photo is a ~0.3 s frame grab instead of a 2-3 s cold `rpicam-still` start, and
-each obstacle gets up to 3 photos, stopping at the first recognised one. The log
+each visit takes one photo with no immediate retry. Missed targets can still
+get one automatic revisit, with one photo on that visit. The log
 prints `Obstacle N: stop took X.Xs`. Stop `videostream/main.py` before Task 1
 so the camera is available. If Picamera2 is unavailable, the Pi uses `rpicam-still`.
 

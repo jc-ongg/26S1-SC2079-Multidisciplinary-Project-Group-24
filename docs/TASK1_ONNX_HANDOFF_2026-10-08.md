@@ -18,9 +18,10 @@ Speed 50, the 10 cm planner/tablet grid and 40 cm turn clearance are unchanged.
 6. Android stores the ID in BluetoothSession, updates the map and chat, and
    suppresses duplicate replay entries. Sending a fresh map clears previous IDs.
 
-A photo by itself does not count as recognised. Each visit allows up to three
-photos, stopping on the first accepted result, with at most one revisit pass
-(six photos maximum per revisited obstacle). Accepted obstacles stay as
+A photo by itself does not count as recognised. The current single-photo trial
+takes one photo per visit without immediate recapture, with at most one revisit
+pass (two photos maximum per revisited obstacle). Results from separate photos
+are not compared or combined. Accepted obstacles stay as
 physical obstacles in Algo collision checking and are not targeted on revisits.
 The Pi can resend cached accepted IDs after a Bluetooth disconnect.
 
@@ -48,13 +49,15 @@ inference inside the Pi's first-photo timeout.
 
 ## Deploy manually
 
-The Pi controller and recognition helper were deployed on 8 October 2026.
-Their checksums, imports and numeric TARGET framing were verified; Task 1 was
-left stopped. The rollback copy is in
-/home/nat/SC2079-MDP/rpi/backups/onnx-handoff-2026-10-08/.
+The Pi controller, recognition helper and fast-camera helper were deployed for
+the single-photo trial on 8 October 2026. Their checksums, imports, one-photo
+limit and numeric TARGET framing were verified; Task 1 was left stopped.
+Picamera2 is installed. The rollback copy is in
+/home/nat/SC2079-MDP/rpi/backups/single-photo-2026-10-08/.
+The earlier handoff backup is retained in backups/onnx-handoff-2026-10-08/.
 The commands below are also available for future manual deployments.
-Run from the repository root. The later fast-camera branch merge has not been
-deployed to the Pi: copy task1_controller.py, recognition.py and camera.py together.
+Run from the repository root. For future Pi updates, copy task1_controller.py,
+recognition.py and camera.py together.
 The annotation style update needs only a laptop CV server restart. Neither of
 these later changes requires another Android build; the handoff APK is still
 needed if the tablet has not been updated yet.
@@ -101,5 +104,9 @@ After integrating feat/task1-fast-snap, focused offline camera, scan-lock,
 launcher and image-pipeline checks passed (55 checks in 0.97 seconds). They cover
 three-photo limits, sensor cleanup after startup/stop failures, warm-capture
 fallback and numeric TARGET delivery before releasing movement. No hardware,
-camera preview or servers were started for these checks. The fast-camera files
-still need deployment as described above.
+camera preview or servers were started for these checks.
+
+The later single-photo trial passed five focused checks in 0.10 seconds:
+one upload per visit, NA/404 without recapture, one bounded revisit, tablet TARGET
+delivery and warm capture. Pi staging and deployed imports also passed without
+opening hardware. The camera and Task 1 program were not started during deployment.
