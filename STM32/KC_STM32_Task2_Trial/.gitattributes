@@ -1,0 +1,2 @@
+# Preserve firmware/source bytes so SHA256SUMS verifies on all platforms.
+* -text
