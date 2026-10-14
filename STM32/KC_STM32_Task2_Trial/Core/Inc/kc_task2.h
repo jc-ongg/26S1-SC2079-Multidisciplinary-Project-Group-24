@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
+#include "kc_entry_geometry.h"
 
 enum KcMove { KCT_FWD, KCT_REV, KCT_LEFT, KCT_RIGHT, KCT_REV_LEFT };
 enum KcPhase { KCT_IDLE, KCT_O1_RANGE, KCT_O1_VISION, KCT_O1_PLAN,
@@ -15,7 +16,7 @@ enum KcPhase { KCT_IDLE, KCT_O1_RANGE, KCT_O1_VISION, KCT_O1_PLAN,
  KCT_IR_ACQUIRE, KCT_IR_MEASURE, KCT_IR_EDGE, KCT_IR_RECOVER, KCT_O2_CORNER,
  KCT_O2_BACK_TURN, KCT_O2_BACK_ACQUIRE, KCT_O2_BACK_EDGE, KCT_O2_RETURN_TURN,
  KCT_RETURN, KCT_O1_EDGE, KCT_REAR_CLEAR, KCT_CENTRE,
- KCT_PARK, KCT_MOVE, KCT_DONE, KCT_ERROR, KCT_O2_BACK_CLEAR };
+ KCT_PARK, KCT_MOVE, KCT_DONE, KCT_ERROR, KCT_O2_BACK_CLEAR, KCT_ENTRY_ALIGN };
 typedef struct {
  uint32_t now, us_seq, ir_seq, us_at, ir_at, imu_at;
  float us, left_ir, right_ir, heading, gyro;
@@ -37,7 +38,7 @@ typedef struct {
  float x,y,h, origin_heading, move_heading, start_x,start_y, amount;
  float o1_gap,o1_front,o2_front, us_anchor, group[3], range, last_progress;
  float expected_range, target, back_gap, edge_progress, metric[2], gap;
- float expected_heading, centre_diagonal;
+ float expected_heading, centre_diagonal, entry_y, return_y;
  unsigned speed;
  uint8_t park_pairs, park_recheck_used, park_rechecking, park_segments;
  float park_l,park_r,park_forward_total;
@@ -120,7 +121,7 @@ static int kc_start(KcTask2 *t,KcT2Hooks hooks,const KcT2Input *i,uint32_t token
  memset(t,0,sizeof(*t));t->io=hooks;t->active=1;t->cap=(uint8_t)cap;
  t->token=token;t->started=i->now;t->heartbeat=i->now;t->origin_heading=i->heading;
  t->us_seen=i->us_seq;t->ir_seen=i->ir_seq;t->us_anchor=NAN;t->expected_range=NAN;t->gap=NAN;t->o1_gap=NAN;
- t->io.stop();kc_enter(t,KCT_O1_RANGE,i->now);kc_event(t,"BUILD_TASK2KC",2,0);kc_event(t,"PROFILE",26,850);kc_event(t,"FINE_POSITION",2,26);kc_event(t,"O1_ACCEPTANCE",30,34);return 1;
+ t->io.stop();kc_enter(t,KCT_O1_RANGE,i->now);kc_event(t,"BUILD_TASK2KC",2,0);kc_event(t,"PROFILE",26,850);kc_event(t,"FINE_POSITION",2,26);kc_event(t,"O1_ACCEPTANCE",30,34);kc_event(t,"PARK_ENTRY",5,22);return 1;
 }
 /* Only reply to the current run and requested obstacle; late replies cannot steer a new run. */
 static int kc_arrow(KcTask2 *t,uint32_t token,unsigned obstacle,unsigned side){
@@ -252,6 +253,8 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   }
   if(i->motion_status==2){kc_fail(t,"ERROR_MOTION",i->now);return;}
   if(kc_elapsed(i->now,t->entered,20000)){kc_fail(t,"ERROR_MOTION_TIMEOUT",i->now);return;}
+  if((t->move==KCT_FWD || t->move==KCT_REV) && (t->after==KCT_CENTRE || t->after==KCT_ENTRY_ALIGN) && fabsf(actual-t->h)>2){kc_fail(t,"ERROR_ENTRY_HEADING",i->now);return;}
+  if(t->after==KCT_CENTRE && t->move==KCT_FWD && i->progress>t->amount+2){kc_fail(t,"ERROR_ENTRY_TRAVEL",i->now);return;}
   if(t->move==KCT_FWD || t->move==KCT_REV){
    if(fabsf(actual-t->h)>5){kc_fail(t,"ERROR_STRAIGHT_HEADING",i->now);return;}
    /* Encoder-bounded approach: transient US jumps cannot extend this command.
@@ -269,7 +272,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    float d=i->progress;
    if(t->after==KCT_PARK && t->move==KCT_FWD)t->park_forward_total+=d;
    kc_pose_finish(t,d);
-   if(fabsf(actual-t->h)>5){kc_fail(t,"ERROR_FINAL_HEADING",i->now);return;}
+   if(fabsf(actual-t->h)>((t->after==KCT_CENTRE || t->after==KCT_ENTRY_ALIGN)?2:5)){kc_fail(t,"ERROR_FINAL_HEADING",i->now);return;}
    if(t->guard_us){t->expected_range=t->range+(t->move==KCT_REV?d:-d);t->guard_us=0;}
    kc_enter(t,t->after,i->now);
   }
@@ -385,6 +388,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   kc_move_to(t,t->side2==1?KCT_RIGHT:KCT_LEFT,50,90,KCT_RETURN,i->now);break;
  case KCT_RETURN:{
   if(t->cap==3){kc_done(t,i->now);break;}
+  t->return_y=t->y;
   float distance=t->y-(t->o1_front+20);
   if(distance<0 || distance>150){kc_fail(t,"ERROR_RETURN_GEOMETRY",i->now);break;}
   t->acquired=0;t->gap=NAN;t->count=0;t->index=0;
@@ -415,21 +419,36 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    kc_begin_move(t,KCT_FWD,12,30,KCT_O1_EDGE,i->now);
   }break;}
  case KCT_REAR_CLEAR:{
-  float d=t->y-(t->o1_front-14.5f); /* rear past O1 front by3 cm */
-  if(d>40){kc_fail(t,"ERROR_O1_CLEAR_GEOMETRY",i->now);break;}
-  if(d>=2)kc_move_to(t,KCT_FWD,16,(unsigned)ceilf(d),KCT_CENTRE,i->now);
-  else {kc_enter(t,KCT_CENTRE,i->now);}
-  t->index=0;break;}
+  /* Do NOT blindly advance until fully past O1. Find where the whole entry
+   * sweep fits first. A wide return lane needs an earlier start, not a longer
+   * diagonal from the old fixed rear-clear pose. Reverse only on the lane
+   * already traversed; no unmeasured lateral reverse or new turn type. */
+  if(fabsf(actual-t->h)>2 || !kce_choose(t->x,t->y,t->return_y,t->o1_front,t->o2_front,
+      &t->centre_diagonal,&t->entry_y)){
+   kc_fail(t,"ERROR_ENTRY_NO_PATH",i->now);break;
+  }
+  kc_event(t,"ENTRY_PLAN",t->entry_y,t->centre_diagonal);
+  float d=t->y-t->entry_y;t->index=0;t->guard_us=0;
+  if(fabsf(d)>=2){
+   unsigned amount=(unsigned)lroundf(fabsf(d));
+   kc_move_to(t,d>0?KCT_FWD:KCT_REV,12,amount,KCT_ENTRY_ALIGN,i->now);
+  }else kc_enter(t,KCT_ENTRY_ALIGN,i->now);
+  break;}
+ case KCT_ENTRY_ALIGN:
+  /* Recheck at ACTUAL encoder endpoint, including completed braking. */
+  if(fabsf(actual-t->h)>2 || !kce_template(t->x,t->centre_diagonal) ||
+      !kce_clear(t->y,t->o1_front,t->o2_front)){
+   kc_fail(t,"ERROR_ENTRY_RECHECK",i->now);break;
+  }
+  t->centre_right=t->x>=0;t->index=0;kc_enter(t,KCT_CENTRE,i->now);break;
  case KCT_CENTRE:{
   if(t->index==0){
-   float shift=t->x>=0?15+(13.25f-13)/1.414213562f:13+(18.0f-15)/1.414213562f;
-   float d=(fabsf(t->x)-shift)*1.414213562f;
-   if(d<0 || d>70){kc_fail(t,"ERROR_CENTRE_GEOMETRY",i->now);break;}
-   t->centre_diagonal=roundf(d);if(t->centre_diagonal==1)t->centre_diagonal=2;
-   t->centre_right=t->x>=0;
-   t->index=1;kc_move_to(t,t->x>=0?KCT_RIGHT:KCT_LEFT,50,45,KCT_CENTRE,i->now);
+   if(!kce_template(t->x,t->centre_diagonal) || !kce_clear(t->y,t->o1_front,t->o2_front)){
+    kc_fail(t,"ERROR_ENTRY_RECHECK",i->now);break;
+   }
+   t->index=1;kc_move_to(t,t->centre_right?KCT_RIGHT:KCT_LEFT,50,45,KCT_CENTRE,i->now);
   }else if(t->index==1){t->index=2;
-   if(t->centre_diagonal>=2)kc_move_to(t,KCT_FWD,100,(unsigned)t->centre_diagonal,KCT_CENTRE,i->now);
+   if(t->centre_diagonal>=2)kc_move_to(t,KCT_FWD,22,(unsigned)t->centre_diagonal,KCT_CENTRE,i->now);
   }else if(t->index==2){t->index=3;kc_move_to(t,t->centre_right?KCT_LEFT:KCT_RIGHT,50,45,KCT_CENTRE,i->now);
   }else{t->corrections=0;t->expected_range=NAN;kc_enter(t,KCT_PARK,i->now);}
   break;}

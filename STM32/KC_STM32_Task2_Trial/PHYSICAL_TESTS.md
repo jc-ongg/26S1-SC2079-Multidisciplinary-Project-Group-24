@@ -32,3 +32,11 @@ Latest new run775486754 in attachmentd2118a80-49d0-4e53-bf3b-af4397319e4d is O1 
 ## Brake-settle physical logs
 
 Attachmentbc1cfb56-87a0-47d5-b540-22bf71d87227: LEFT O1-only291142360 and RIGHT O1-only361475004 reportDONE with PROFILE26/850. No braking/encoder error in these runs. Physical RIGHT26cm endpoint measurement not supplied. Full attempts subsequently hit O1 min3cm oscillation, one startupNOT_READY, O2 vision failure, and O2 common-view oscillation despite LEFT arrow. Current Fine_Positioning trial reduces minimum correction2cm and uses cached O2 arrow target. Pending physical validation.
+
+
+### Reported parking collision — run567849394
+User reports contact during diagonal centring and again on carpark entry. O1 LEFT80.3%, O2 LEFT63.6%. O1 return landmark missed; estimated X56.11; old centring F58 at100; finalUS3.17,ERROR_PARK_CONFIRM. New Parking_Entry_Geometry_Trial is built but physical validation is pending. Earlier2.90cm O2 gap remains unresolved.
+
+
+### Latest feedback after parking entry trial
+Kia Chun reports carpark remains problematic. No latest trace or contact location supplied yet. Mark parking unresolved; do not treat simulated clearance checks as physical validation.

@@ -7,7 +7,7 @@ static unsigned starts,stops;static float brake_distance;
 static int commands[128];static unsigned amounts[128];
 static void start(int m,unsigned speed,unsigned n){assert(speed>0&&speed<=100);if(m!=KCT_FWD)assert(speed<=50);assert(n>0);commands[starts]=m;amounts[starts++]=n;brake_distance=0;}
 static float stop(void){stops++;return brake_distance;}
-static void event(const char *s,float a,float b){(void)s;(void)a;(void)b;}
+static void event(const char *s,float a,float b){if(!strncmp(s,"ERROR_ENTRY",11))fprintf(stderr,"%s %.2f %.2f\n",s,a,b);}
 static KcT2Hooks hooks={start,stop,event};
 static KcT2Input input(void){KcT2Input i={0};i.now=1000;i.imu_at=1000;i.us_at=1000;i.ir_at=1000;i.gyro_ready=1;i.us_valid=1;i.us=60;i.left_ir=80;i.right_ir=80;return i;}
 static void advance(KcTask2 *t,KcT2Input *i){i->now+=100;i->us_at=i->ir_at=i->imu_at=i->now;i->us_seq++;i->ir_seq++;t->heartbeat=i->now;kc_step(t,i);}
@@ -280,5 +280,32 @@ int main(void){
  advance(&t,&i);assert(t.phase==KCT_O2_TARGET&&t.side2==1);
  for(int k=0;k<3;k++)advance(&t,&i);
  assert(t.phase==KCT_DONE&&starts==0);
+ /* Reported LEFT/LEFT return: old Y57.90 path collides with park envelope.
+  * New plan stages earlier on the already-traversed return lane. */
+ float diagonal,entry;
+ assert(kce_template(56.11f,58));assert(!kce_clear(57.90f,73.27f,143.17f));
+ assert(kce_choose(56.11f,73.61f,140.41f,73.27f,143.17f,&diagonal,&entry));
+ assert(diagonal==58&&entry>85&&entry<110);
+ assert(kce_clear(entry,73.27f,143.17f));
+ assert(kce_reposition_clear(56.11f,73.61f,entry,73.27f,143.17f));
+ assert(!kce_choose(56.11f,73.61f,80,73.27f,143.17f,&diagonal,&entry));
+ assert(!kce_choose(100,73.61f,140,73.27f,143.17f,&diagonal,&entry));
+ assert(!kce_choose(NAN,73.61f,140,73.27f,143.17f,&diagonal,&entry));
+ assert(!kce_reposition_clear(0,55,100,73.27f,143.17f)); /* Cannot back through O1. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
+ t.phase=KCT_REAR_CLEAR;t.x=56.11f;t.y=73.61f;t.return_y=140.41f;t.o1_front=73.27f;t.o2_front=143.17f;t.h=180;i.heading=180;
+ advance(&t,&i);assert(t.phase==KCT_MOVE&&t.move==KCT_REV&&t.speed==12);
+ float reposition=t.amount;
+ i.motion_status=1;i.progress=reposition+.8f;advance(&t,&i);i.motion_status=0;
+ assert(t.phase==KCT_ENTRY_ALIGN);advance(&t,&i);assert(t.phase==KCT_CENTRE);
+ advance(&t,&i);assert(t.move==KCT_RIGHT&&t.speed==50);
+ i.heading=135;i.motion_status=1;i.progress=22;advance(&t,&i);i.motion_status=0;
+ advance(&t,&i);assert(t.move==KCT_FWD&&t.amount==58&&t.speed==22);
+ i.progress=60.1f;i.motion_status=0;i.heading=135;advance(&t,&i);
+ assert(t.phase==KCT_ERROR); /* Diagonal outside checked travel budget brakes. */
+ /* Reposition overrun beyond the safe interval cannot start a turn. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
+ t.phase=KCT_ENTRY_ALIGN;t.x=56.11f;t.y=120;t.o1_front=73.27f;t.o2_front=143.17f;t.centre_diagonal=58;t.h=180;i.heading=180;
+ advance(&t,&i);assert(t.phase==KCT_ERROR&&starts==0);
  puts("Task2 native state-machine scenarios passed (four arrow combinations + guards).");return 0;
 }
