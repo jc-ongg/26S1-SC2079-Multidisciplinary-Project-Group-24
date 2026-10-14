@@ -1,0 +1,7 @@
+Debug/
+Release/
+.DS_Store
+__pycache__/
+*.py[cod]
+KC_native_images_*/
+KC_native_task2_*.jsonl
