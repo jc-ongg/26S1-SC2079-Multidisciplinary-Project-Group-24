@@ -4,6 +4,7 @@
 #include "Core/Inc/kc_forward_profile.h"
 #include "Core/Inc/kc_stop_settle.h"
 static unsigned starts,stops;static float brake_distance;
+static float simulated_o2_front=151.5f;
 static int commands[128];static unsigned amounts[128];
 static void start(int m,unsigned speed,unsigned n){assert(speed>0&&speed<=100);if(m!=KCT_FWD)assert(speed<=50);assert(n>0);commands[starts]=m;amounts[starts++]=n;brake_distance=0;}
 static float stop(void){stops++;return brake_distance;}
@@ -25,7 +26,7 @@ static void simulate(unsigned a1,unsigned a2,unsigned cap){
    i.heading=t.move_heading+(t.move==KCT_LEFT?t.amount:(t.move==KCT_RIGHT||t.move==KCT_REV_LEFT)?-t.amount:0);
   }else i.heading=t.h;
   if(t.phase==KCT_O1_RANGE)i.us=71.5f-t.y-11.5f;
-  else if(t.phase==KCT_O2_RANGE||t.phase==KCT_O2_TARGET)i.us=151.5f-t.y-11.5f;
+  else if(t.phase==KCT_O2_RANGE||t.phase==KCT_O2_TARGET)i.us=simulated_o2_front-t.y-11.5f;
   else if(t.phase==KCT_PARK)i.us=t.y+13.5f; /* rear wall Y=-25; forward lens 11.5 */
   else i.us=40;
   float ir=20;
@@ -49,6 +50,12 @@ int main(void){
  simulate(1,1,1);simulate(2,1,1);
  simulate(1,1,0);simulate(1,2,0);simulate(2,1,0);simulate(2,2,0);
  simulate(1,1,2);simulate(1,2,3);
+ /* All arrows at the rules minimum60cm and maximum150cm obstacle gap. */
+ for(unsigned spacing=0;spacing<2;spacing++){
+  simulated_o2_front=71.5f+10+(spacing?150:60);
+  for(unsigned a=1;a<=2;a++)for(unsigned b=1;b<=2;b++)simulate(a,b,0);
+ }
+ simulated_o2_front=151.5f;
  reset();KcTask2 t;KcT2Input i=input();i.gyro=24;assert(!kc_start(&t,hooks,&i,1,1));assert(starts==0);
  i=input();assert(kc_start(&t,hooks,&i,1,1));i.now+=2100;i.imu_at=i.now;kc_step(&t,&i);assert(t.phase==KCT_ERROR&&starts==0);
  reset();i=input();assert(kc_start(&t,hooks,&i,1,1));
@@ -149,7 +156,7 @@ int main(void){
  assert(kc_forward_pwm_limit(30,1)==5000&&kc_forward_pwm_limit(60,1)==0);
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.side1=2;t.phase=KCT_O1_PLAN;t.index=1;
  advance(&t,&i);assert(t.move==KCT_FWD&&t.speed==50&&t.amount==7);
- reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_RETURN;t.y=150;t.o1_front=70;
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_RETURN;t.return_prepared=1;t.y=150;t.o1_front=70;
  advance(&t,&i);assert(t.move==KCT_FWD&&t.speed==100);
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));i.us=120;
  for(int k=0;k<3;k++)advance(&t,&i);
@@ -306,6 +313,43 @@ int main(void){
  /* Reposition overrun beyond the safe interval cannot start a turn. */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
  t.phase=KCT_ENTRY_ALIGN;t.x=56.11f;t.y=120;t.o1_front=73.27f;t.o2_front=143.17f;t.centre_diagonal=58;t.h=180;i.heading=180;
+ advance(&t,&i);assert(t.phase==KCT_ERROR&&starts==0);
+ /* Wide LEFT return is shortened before O1: 56cm lane -> about30cm,
+  * instead of a58cm diagonal at the park. Every planned template stays clear. */
+ assert(kce_trim_choose(56.11f,124.67f,73.27f,143.17f,&diagonal,&entry));
+ assert(diagonal==15 && entry>=118 && entry<=124);
+ assert(kce_clear(entry,73.27f,143.17f));
+ float end_x=kce_poses[kce_ends[0]].x,end_y=entry+kce_poses[kce_ends[0]].y;
+ assert(fabsf(end_x-30)<1);
+ assert(kce_choose(end_x,end_y,end_y,73.27f,143.17f,&diagonal,&entry));
+ assert(diagonal<25);
+ /* A path with less than5cm feasible staging interval is rejected. */
+ assert(!kce_trim_choose(-42,124.67f,73.27f,143.17f,&diagonal,&entry));
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
+ t.phase=KCT_RETURN;t.x=56.11f;t.y=140.41f;t.o1_front=73.27f;t.o2_front=143.17f;t.h=180;i.heading=180;
+ advance(&t,&i);assert(t.phase==KCT_MOVE&&t.after==KCT_RETURN_CLEAR&&t.speed==22&&t.amount==16);
+ for(unsigned k=0;k<30&&t.phase!=KCT_O1_EDGE&&t.active;k++){
+  i.motion_status=0;i.progress=0;i.heading=t.h;
+  if(t.phase==KCT_MOVE){i.progress=t.amount;i.motion_status=1;
+   i.heading=t.move_heading+(t.move==KCT_LEFT?t.amount:t.move==KCT_RIGHT?-t.amount:0);
+  }
+  advance(&t,&i);
+ }
+ assert(t.phase==KCT_O1_EDGE&&t.return_prepared&&fabsf(t.x-30)<1);
+ /* Real run428994270: O1front72.95, O2front231.50. Previously
+  * the final-entry lookup began currentY-40 and falsely rejected the lane. */
+ assert(kce_trim_choose(51.40f,212.35f,72.95f,231.50f,&diagonal,&entry));
+ assert(diagonal==9 && entry>182 && entry<212);
+ assert(kce_clear(entry,72.95f,231.50f));
+ end_x=kce_poses[kce_ends[0]].x;end_y=entry+kce_poses[kce_ends[0]].y;
+ float staged_y=end_y;
+ assert(kce_choose(end_x,end_y,end_y,72.95f,231.50f,&diagonal,&entry));
+ assert(staged_y-entry>40); /* Long straight connection must be checked. */
+ assert(kce_reposition_clear(end_x,staged_y,entry,72.95f,231.50f));
+ assert(!kce_reposition_clear(0,staged_y,entry,72.95f,231.50f)); /* O1 blocks centreline. */
+ /* An unmodelled wide lane cannot silently fall back to the old diagonal. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
+ t.phase=KCT_RETURN_CLEAR;t.x=100;t.y=120;t.o1_front=73;t.o2_front=143;t.h=180;i.heading=180;
  advance(&t,&i);assert(t.phase==KCT_ERROR&&starts==0);
  puts("Task2 native state-machine scenarios passed (four arrow combinations + guards).");return 0;
 }

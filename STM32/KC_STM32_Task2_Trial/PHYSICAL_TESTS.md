@@ -40,3 +40,7 @@ User reports contact during diagonal centring and again on carpark entry. O1 LEF
 
 ### Latest feedback after parking entry trial
 Kia Chun reports carpark remains problematic. No latest trace or contact location supplied yet. Mark parking unresolved; do not treat simulated clearance checks as physical validation.
+
+## Latest full-run feedback (2026-10-14)
+
+Long_Return_Fix marker2: user supplied17 attempts,13 firmware completions covering all four arrow combinations. Three parking-depth confirmation stops and one final straight-heading stop remain. See analysis/physical_runs_2026_10_14 for the transcript and per-run summary. User reports overall behaviour is "not too bad"; no precise collision/parking-position measurements were supplied with this batch.

@@ -53,7 +53,9 @@ static KcT2Input kc_platform_input(void){
  taskENTER_CRITICAL();
  i.now=HAL_GetTick();i.us_seq=kc_us_seq;i.ir_seq=kc_ir_seq;i.us_at=kc_us_at;i.ir_at=kc_ir_at;i.imu_at=kc_imu_at;
  i.us=ultrasonicDistanceCm;i.us_valid=ultrasonicValid;i.left_ir=irLeftDistanceCm;i.right_ir=irRightDistanceCm;
- i.heading=globalHeading+currentAngle;i.gyro=gyro_z_dps;i.gyro_ready=gyro_calibrated;
+ /* Completed straight primitives commit currentAngle into globalHeading but
+  * may retain currentAngle. Match SENSOR/OLED: add it only while tracking. */
+ i.heading=globalHeading+(isTurning?currentAngle:0.0f);i.gyro=gyro_z_dps;i.gyro_ready=gyro_calibrated;
  taskEXIT_CRITICAL();
  i.motion_status=kc_sub_status;i.progress=kc_progress;return i;
 }
@@ -66,7 +68,7 @@ static uint8_t kc_platform_tick(MotorCommand_t command,uint8_t entering){
   KcT2Hooks hooks={kc_platform_start,kc_platform_stop,kc_platform_event};KcT2Input i=kc_platform_input();
   if(!kc_start(&kc_engine,hooks,&i,command.cmdId,command.param2DistAngle)){
    snprintf(kc_failure,sizeof(kc_failure),"ERROR_NOT_STATIONARY_READY");return 2;
-  }kc_active=1;
+  }kc_platform_event("HEADING_ORIGIN",i.heading,0);kc_platform_event("HEADING_FEEDBACK",1,2);kc_active=1;
  }
  if(kc_sub_live){
   uint8_t status=0;

@@ -38,6 +38,12 @@ static void tick(uint32_t stamp){
  MotorCommand_t cmd={0};assert(kc_platform_tick(cmd,0)==0);
 }
 int main(void){
+ /* Completed reverse: its delta has ALREADY been committed. Do not add twice. */
+ globalHeading=-180.6f;currentAngle=-1.6f;isTurning=0;
+ KcT2Input sample=kc_platform_input();assert(fabsf(sample.heading+180.6f)<.001f);
+ isTurning=1;sample=kc_platform_input();assert(fabsf(sample.heading+182.2f)<.001f);
+ globalHeading=225;currentAngle=1.9f;sample=kc_platform_input();assert(fabsf(sample.heading-226.9f)<.001f);
+ globalHeading=currentAngle=0;isTurning=0;
  KcT2Hooks hooks={kc_platform_start,kc_platform_stop,kc_platform_event};
  KcT2Input i=kc_platform_input();assert(kc_start(&kc_engine,hooks,&i,77,1));kc_active=1;
  kc_move_to(&kc_engine,KCT_FWD,100,10,KCT_O1_RANGE,now);

@@ -1,23 +1,15 @@
-# Unresolved issues — updated2026-10-14
+# Current status — updated2026-10-14
 
-## Parking still problematic — latest physical feedback
+Latest shared firmware: Release/KC_Task2_KiaChun_Long_Return_Fix.hex, startup RETURN_LANE_TRIAL/2/22. Source includes heading-feedback correction, early wide-lane correction, and the fix for the40cm parking-preflight search restriction. Use the Protocol2 bridge included in pi/.
 
-Kia Chun reports: "the carpark still have an issue" after being given the parking entry geometry trial. No latest-run log, measured offset or exact contact location has been supplied with that report. Do not claim the latest failure has the same precise cause as the earlier collision. The shared branch intentionally remains a draft/work in progress.
+Kia Chun reports the latest runs have been "not too bad". The supplied17-attempt transcript contains13 COMPLETE,3 ERROR_PARK_DEPTH_UNCONFIRMED and1 ERROR_STRAIGHT_HEADING. Completed attempts cover all four arrow combinations. See analysis/physical_runs_2026_10_14 for the complete transcript and per-run outcomes. Firmware COMPLETE is not independent evidence of collision-free physical clearance.
 
-## Earlier documented collision — run567849394
+## Remaining issues
 
-O1 LEFT and O2 LEFT recognised80.3%/63.6%. Return failed to acquire O1 IR and used estimatedX56.11. From old rear-clearY57.90 it ran RIGHT45, FWD58 at100, LEFT45. Actual diagonal58.38 plus calibrated turns advanced77.84cm toward parking. User reports contact during diagonal and again on entry; finalUS3.17 produced ERROR_PARK_CONFIRM. That final rejection happened after the reported contact.
+- Parking can still stop on unreliable final US confirmation: runs638492705,967884979,127117332.
+- Run431109947 stopped with ERROR_STRAIGHT_HEADING during the final parking approach. Exact cause needs sensor telemetry; no new guard changes are included in this publication.
+- Turn translations use measured endpoints. Intermediate turn sweeps are modelled with two illustrative fits, not measured trajectories. Pose is estimated when O1 IR cannot be acquired.
+- Earlier outward O1 bypass could finish very close to O2 (recordedUS2.90cm); this return update does not change O1 bypass.
+- Model/API code and weights on the laptop are separate. This update keeps the existing image API contract and protocol2 bridge. A separately installed Protocol4 bridge is not compatible with this firmware.
 
-The new trial plans an earlier start from the known return lane, checks complete sampled footprint/repositioning, rechecks actual positioning endpoint, and reduces diagonal to22. For that recorded case, model choice isY97.50 and approximately24cm reverse from the earlier landmark-search stopY73.61. **This mathematical replay does not prove the physical path fits**, and latest user feedback remains unresolved.
-
-## Remaining uncertainty / reviewer focus
-
-- Real intermediate45degree turn sweeps are unmeasured. The planner tests two illustrative fits sharing measured endpoints; these are not certified bounds.
-- No O1 return landmark means lateral pose remains estimated. Resetting X0 after outward O1 bypass is a calibration assumption, not observed centring.
-- Park wall envelope assumes60cm inside width,50cm depth, start fully inside aligned approximately with centreline. It does not measure this setup's wall position. Inflated body margin5cm does not establish actual pose uncertainty.
-- Side-wall thickness assumed10cm. Reposition bounded to recorded return corridor, but actual surroundings/pose still need validation.
-- Most recent documented run had US2.90cm immediately after outward O1 bypass, before reversing away from O2. Parking planner does not fix that earlier proximity risk.
-- New model running on Kia Chun's laptop is a separate Task2 arrow API; model/API code and weights are not bundled in this STM32-only update. Existing Pi multipart8001/predict contract remains compatible. Success recognising arrows does not establish movement clearance.
-- Protocol2 firmware/bridge in this folder differs from the separately installed Protocol4 bridge. Use matched pairs; keep identity checks.
-
-Next review needs the latest physical-failure log and contact phase, then reconciliation of true turn sweep/park reference before modifying distance or confirmation thresholds. See analysis/parking_collision and analysis/o1_clearance for prior calculations. No merge or board flash performed by this publication.
+Old named HEXs are retained for rollback. Prior collision analyses remain in analysis/parking_collision. Latest return details are in analysis/friend_Task2_return. This branch remains a draft for review; no merge or board flash is performed by publication.
