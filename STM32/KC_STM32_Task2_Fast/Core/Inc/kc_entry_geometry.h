@@ -10,6 +10,7 @@
 #define KC_ENTRY_GEOMETRY_H
 #include <math.h>
 #include <stdint.h>
+#include <string.h>
 #define KCE_MAX_POSES 320  /* 90 deg templates: 4 x (1+30+16+30) = 308 */
 #define KCE_MARGIN 5.0f
 /* Longest entry/trim diagonal (cm). Was 70: run 700394561 (O2 LEFT, wide O2,
@@ -103,9 +104,31 @@ static int kce_reposition_clear(float x,float from,float to,float o1,float o2){
  for(unsigned k=0;k<=n;k++)if(!kce_pose_clear(&p,from+(to-from)*(float)k/n,o1,o2))return 0;
  return 1;
 }
+/* kce_clear per entry y, for one template (x, diagonal, turn) and obstacle
+ * pair. The return-lane trim asks kce_choose ~30 times with the same
+ * template; on the robot that search took 2.9-4.4 s (v15 runs). Same
+ * answers, computed once. 0 unknown, 1 clear, 2 blocked. */
+static float kce_memo_key[5];
+static uint8_t kce_memo_valid;
+static uint8_t kce_memo[256];
+static float kce_memo_y0;
+static int kce_clear_memo(float y,float x,float d,float turn,float o1,float o2){
+ if(!kce_memo_valid || kce_memo_key[0]!=x || kce_memo_key[1]!=d || kce_memo_key[2]!=turn ||
+    kce_memo_key[3]!=o1 || kce_memo_key[4]!=o2){
+  memset(kce_memo,0,sizeof(kce_memo));
+  kce_memo_key[0]=x;kce_memo_key[1]=d;kce_memo_key[2]=turn;kce_memo_key[3]=o1;kce_memo_key[4]=o2;
+  kce_memo_y0=ceilf(fmaxf(0,o1-100));kce_memo_valid=1;
+ }
+ float k=y-kce_memo_y0;
+ if(!(k>=0 && k<256))return kce_clear(y,o1,o2);
+ uint8_t *m=&kce_memo[(unsigned)k];
+ if(!*m)*m=kce_clear(y,o1,o2)?1:2;
+ return *m==1;
+}
 /* Pick the middle of the widest safe interval, not its barely-clear boundary.
- * Candidate range stays below the return-lane start already traversed. */
-static int kce_choose_turn(float x,float current_y,float known_y,float o1,float o2,float *diagonal,float *chosen,float turn){
+ * Candidate range stays below the return-lane start already traversed.
+ * feasible_only: stop at the first interval long enough (same yes/no). */
+static int kce_choose_scan(float x,float current_y,float known_y,float o1,float o2,float *diagonal,float *chosen,float turn,int feasible_only){
  float d;
  if(turn>60){
   /* Two 90 deg turns already move 53 (x>=0: RIGHT 38 + LEFT 15 fwd) or
@@ -125,14 +148,18 @@ static int kce_choose_turn(float x,float current_y,float known_y,float o1,float 
  float low=fmaxf(0,o1-100),high=fminf(o1+100,fminf(known_y-2,current_y+60));
  unsigned best=0,run=0;float begin=0,best_begin=0;
  for(float y=ceilf(low);y<=floorf(high);y+=1){
-  if(kce_clear(y,o1,o2) && kce_reposition_clear(x,current_y,y,o1,o2)){
+  if(kce_clear_memo(y,x,d,turn,o1,o2) && kce_reposition_clear(x,current_y,y,o1,o2)){
    if(!run)begin=y;
    run++;
    if(run>best){best=run;best_begin=begin;}
+   if(feasible_only && best>=5)break;
   }else run=0;
  }
  if(best<5)return 0; /* Insufficient interval for encoder/reposition residual. */
  *diagonal=d;*chosen=best_begin+(float)(best-1)*.5f;return kce_template_turn(x,0,d,turn);
+}
+static int kce_choose_turn(float x,float current_y,float known_y,float o1,float o2,float *diagonal,float *chosen,float turn){
+ return kce_choose_scan(x,current_y,known_y,o1,o2,diagonal,chosen,turn,0);
 }
 static int kce_choose(float x,float current_y,float known_y,float o1,float o2,float *diagonal,float *chosen){
  return kce_choose_turn(x,current_y,known_y,o1,o2,diagonal,chosen,45);
@@ -158,7 +185,7 @@ static int kce_trim_choose_turn(float x,float target,float current_y,float o1,fl
   float end_x=kce_poses[kce_ends[0]].x;
   int clear=kce_clear(y,o1,o2) && kce_reposition_clear(x,current_y,y,o1,o2);
   float final_d,final_y;
-  if(clear)clear=kce_choose(end_x,end_y,end_y,o1,o2,&final_d,&final_y);
+  if(clear)clear=kce_choose_scan(end_x,end_y,end_y,o1,o2,&final_d,&final_y,45,1);
   if(clear){if(!run)begin=y;run++;if(run>best){best=run;best_begin=begin;}}
   else run=0;
  }

@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "Core/Inc/kc_task2.h"
 #include "Core/Inc/kc_forward_profile.h"
 #include "Core/Inc/kc_stop_settle.h"
@@ -7,22 +8,82 @@ static unsigned starts,stops;static float brake_distance;
 static float simulated_o2_front=151.5f;
 static int commands[128];static unsigned amounts[128];
 static void start(int m,unsigned speed,unsigned n){assert(speed>0&&speed<=100);if(m!=KCT_FWD)assert(speed<=50);assert(n>0);commands[starts]=m;amounts[starts++]=n;brake_distance=0;}
-static float stop(void){stops++;return brake_distance;}
-static unsigned wide_events;
+/* Robot model for continuous drive (U-turn): rear-axle kinematics, servo
+ * swing in time, first-order speed. Scales: true lock radius, servo lag,
+ * top speed at the swerve PWM, unseen brake skid. */
+static float um_rscale=1,um_lag=1,um_vmax=51,um_skid=1;
+static int um_mode=-1;static float um_off;static unsigned um_pwm;
+static float um_x,um_y,um_h,um_k,um_v,um_dist,um_goal=NAN,um_tx,um_ty;
+static unsigned um_drives;
+static float um_x0,um_y0,um_h0,um_reach,um_outer=1; /* outer side: +1 right (LEFT U-turn) */
+static float um_ir_back=20;  /* side IR once straight after the U-turn (80: narrow O2, nothing there) */
+static void drive(int m,float off,unsigned pwm){um_mode=m;um_off=off;um_pwm=pwm;um_drives++;}
+static void goal(float h){um_goal=h;}
+static float stop(void){
+ stops++;
+ if(um_v>0){float sk=um_skid*KCF_RF_SKID*(um_v/57)*(um_v/57);um_tx-=sk*sinf(um_h);um_ty+=sk*cosf(um_h);um_v=0;}
+ um_mode=-1;return brake_distance;
+}
+static void um_step(float dt){
+ float rl=KCF_R_LEFT*um_rscale,rr=KCF_R_RIGHT*um_rscale,k=0;
+ if(um_mode==KCF_DRIVE_LEFT || um_mode==KCF_DRIVE_BRAKE_LEFT)k=1/rl;
+ else if(um_mode==KCF_DRIVE_RIGHT || um_mode==KCF_DRIVE_BRAKE_RIGHT)k=-1/rr;
+ else if(um_mode==KCF_DRIVE_STRAIGHT)k=um_off<0?(-um_off/48.4f)/rl:-(um_off/59.6f)/rr;
+ float full=1/KCF_R_LEFT+1/KCF_R_RIGHT,step=full/((k>um_k?KCF_T_RL:KCF_T_LR)*um_lag)*dt,dk=k-um_k;
+ um_k+=dk>step?step:dk<-step?-step:dk;
+ float vt=(um_mode>=0 && um_mode<KCF_DRIVE_BRAKE)?um_vmax*(float)um_pwm/(float)KCF_PWM_TURN:0;
+ um_v+=(vt-um_v)*(dt/0.12f>1?1:dt/0.12f);
+ float ds=um_v*dt,hm=um_h+0.5f*um_k*ds;um_h+=um_k*ds;
+ um_x-=ds*sinf(hm);um_y+=ds*cosf(hm);um_tx-=ds*sinf(hm);um_ty+=ds*cosf(hm);um_dist+=ds;
+ /* Front corner on the outside of the turn (19.7 ahead of the axle, 9.5
+  * to the side): how far past the corner start it reaches, along the face. */
+ float cx=um_tx-19.7f*sinf(um_h)+9.5f*um_outer*cosf(um_h),cy=um_ty+19.7f*cosf(um_h)+9.5f*um_outer*sinf(um_h);
+ float reach=(cx-um_x0)*(-sinf(um_h0))+(cy-um_y0)*cosf(um_h0);
+ if(reach>um_reach)um_reach=reach;
+}
+/* Run the U-turn phase in 5 ms steps; returns ms taken. */
+static unsigned um_run(KcTask2 *t,KcT2Input *i){
+ um_x=i->ox;um_y=i->oy;um_tx=um_x;um_ty=um_y;um_h=kc_rad(i->heading-t->origin_heading);um_k=0;um_dist=i->odist;
+ /* Rolling in (umode 1 at once): still at face speed, steering centred. */
+ um_v=t->umode==1?um_vmax*(float)(KC_O2_FACE_SPEED*71)/(float)KCF_PWM_TURN:0;um_mode=KCF_DRIVE_STRAIGHT;um_off=0;
+ um_x0=um_x;um_y0=um_y;um_h0=um_h;um_reach=-1e9f;
+ unsigned ms=0;
+ for(;ms<8000 && t->active && t->phase==KCT_O2_UTURN;ms+=5){
+  um_step(0.005f);
+  i->now+=5;i->us_at=i->ir_at=i->imu_at=i->now;t->heartbeat=i->now;
+  if(ms%50==0){i->ir_seq++;float ir=t->umode>=4?um_ir_back:80;i->left_ir=i->right_ir=ir;}
+  i->ox=um_x;i->oy=um_y;i->odist=um_dist;i->speed=um_v;i->gyro=um_k*um_v*57.29578f;
+  i->heading=t->origin_heading+um_h*57.29578f;
+  kc_step(t,i);
+ }
+ return ms;
+}
+static unsigned wide_events,pose_estimates;
+static int trace_events=-1;
 static void event(const char *s,float a,float b){
+ if(trace_events<0)trace_events=getenv("KC_TRACE")!=NULL;
+ if(trace_events && strcmp(s,"STATE"))fprintf(stderr,"   %s %.2f %.2f\n",s,a,b);
+ /* Wide-lane skip of the O1 search only (lane more than 60 cm out); the
+  * same event also marks a lane already beside O1 with no IR fix. */
+ if(!strcmp(s,"O1_POSE_ESTIMATE") && fabsf(a)-10.4f>60)pose_estimates++;
  if(!strncmp(s,"ERROR_",6))fprintf(stderr,"%s %.2f %.2f\n",s,a,b);
  if(!strncmp(s,"RETURN_LANE_CROSS",17) || !strcmp(s,"ENTRY_TURN"))wide_events++;
 }
-static KcT2Hooks hooks={start,stop,event,NULL};
+static KcT2Hooks hooks={start,stop,event,drive,goal};
 static KcT2Input input(void){KcT2Input i={0};i.now=1000;i.imu_at=1000;i.us_at=1000;i.ir_at=1000;i.gyro_ready=1;i.us_valid=1;i.us=60;i.left_ir=80;i.right_ir=80;return i;}
 static void advance(KcTask2 *t,KcT2Input *i){i->now+=100;i->us_at=i->ir_at=i->imu_at=i->now;i->us_seq++;i->ir_seq++;t->heartbeat=i->now;kc_step(t,i);}
 static void reset(void){starts=stops=0;brake_distance=0;}
-static float sim_front_edge=6,sim_back_edge=30,edge_run;
-static unsigned turns180;
+static float sim_front_edge=6,edge_run,sim_near;
+static unsigned turns180,uturns;
 static void simulate(unsigned a1,unsigned a2,unsigned cap){
- reset();KcTask2 t;KcT2Input i=input();assert(kc_start(&t,hooks,&i,77,cap));
+ reset();KcTask2 t;KcT2Input i=input();assert(kc_start(&t,hooks,&i,77,cap));sim_near=NAN;
  unsigned loops=0,previous_starts=0;enum KcPhase last=KCT_IDLE;
  for(;t.active&&loops<4000;loops++){
+  if(t.phase==KCT_O2_UTURN){
+   uturns++;um_run(&t,&i);
+   /* Hand back an exact heading: the coarse loop below sets i.heading=t.h. */
+   continue;
+  }
   if(t.waiting_arrow){assert(!kc_arrow(&t,76,t.waiting_arrow,1));assert(kc_arrow(&t,77,t.waiting_arrow,t.waiting_arrow==1?a1:a2));}
   if(starts!=previous_starts){i.progress=0;previous_starts=starts;}
   i.motion_status=0;
@@ -46,11 +107,17 @@ static void simulate(unsigned a1,unsigned a2,unsigned cap){
   else i.us=40;
   float ir=20;
   if(t.phase==KCT_IR_EDGE || t.phase==KCT_O2_BACK_EDGE){
-   /* Face length left from where following starts (wide O2: whole 100 cm
-    * moves run out and EDGE_CONTINUE takes over). */
+   /* Front face: its length left from where following starts (wide O2:
+    * whole 100 cm moves run out and EDGE_CONTINUE takes over). O2 is
+    * centred on the O1-O2 line, so the back face ends at the near end's
+    * mirror image, wherever the back-face move started. */
    if(t.move_live){i.progress+=1;brake_distance=i.progress;if(i.progress>=t.amount)i.motion_status=1;}
-   edge_run+=t.move_live?1:0;
-   ir=edge_run>=(t.phase==KCT_IR_EDGE?sim_front_edge:sim_back_edge)?80:20;
+   float live_x=t.start_x-(t.move_live?i.progress:0)*sinf(kc_rad(t.move_heading));
+   if(t.phase==KCT_IR_EDGE){
+    edge_run+=t.move_live?1:0;
+    ir=edge_run>=sim_front_edge?80:20;
+    if(ir>40 && isnan(sim_near))sim_near=live_x;
+   }else ir=(sim_near>0?live_x<=-sim_near:live_x>=-sim_near)?80:20;
   }else if(t.phase==KCT_O1_EDGE){
    edge_run=0;
    i.progress+=1;brake_distance=i.progress;
@@ -69,28 +136,97 @@ static void simulate(unsigned a1,unsigned a2,unsigned cap){
 }
 int main(void){
  simulate(1,1,1);simulate(2,1,1);
- turns180=0;simulate(1,1,0);assert(turns180==(KC_O2_CORNER_180?1:0)); /* O2 LEFT: one 180 at the corner */
- turns180=0;simulate(1,2,0);assert(turns180==0);                       /* O2 RIGHT: 90, 10 cm, 90 */
+ /* O2 LEFT: one continuous RIGHT U-turn (else the legacy RIGHT 180). */
+ turns180=0;uturns=0;simulate(1,1,0);
+ assert(uturns==((KC_O2_UTURN&2)?1u:0u) && turns180==((KC_O2_UTURN&2)?0u:KC_O2_CORNER_180?1u:0u));
+ /* O2 RIGHT: one continuous LEFT U-turn (else 90, 10 cm, 90). */
+ turns180=0;uturns=0;simulate(1,2,0);assert(turns180==0);
+ assert(uturns==((KC_O2_UTURN&1)?1u:0u));
  simulate(2,1,0);simulate(2,2,0);
  simulate(1,1,2);simulate(1,2,3);
  /* All arrows at the rules minimum60cm and maximum150cm obstacle gap. */
  for(unsigned spacing=0;spacing<2;spacing++){
   simulated_o2_front=71.5f+10+(spacing?150:60);
+  pose_estimates=0;
   for(unsigned a=1;a<=2;a++)for(unsigned b=1;b<=2;b++)simulate(a,b,0);
+  assert(pose_estimates==0); /* normal lanes never skip the O1 search */
  }
  /* Very wide O2 (robot 2026-10-15: ~140 cm): front edge ~37 cm along the
   * face, back face ~135 cm; the return lane ends 80-95 cm out and needs the
   * 90 deg crossing. All arrows, short and long O1-O2 gaps. */
  for(unsigned spacing=0;spacing<3;spacing++){
   simulated_o2_front=71.5f+10+(spacing==0?60:spacing==1?81:150);
-  sim_front_edge=37;sim_back_edge=135;
-  unsigned crossings=0;
+  sim_front_edge=37;
+  unsigned crossings=0;pose_estimates=0;
   for(unsigned a=1;a<=2;a++)for(unsigned b=1;b<=2;b++){wide_events=0;simulate(a,b,0);crossings+=wide_events>0;}
-  fprintf(stderr,"wide O2, gap %.0f: 4/4 parked, %u used the 90 deg crossing\n",simulated_o2_front-81.5f,crossings);
+  fprintf(stderr,"wide O2, gap %.0f: 4/4 parked, %u used the 90 deg crossing, %u skipped the O1 search\n",simulated_o2_front-81.5f,crossings,pose_estimates);
   assert(spacing==2 || crossings==4); /* a 150 cm gap has room for the 45 deg trim */
+  /* Lanes still 70+ cm out at the return skip the side-IR O1 search; a
+   * crossing or trim that brings the lane in first keeps it. Which courses
+   * do which depends on where the back face ends (O2 centred). */
+  assert(pose_estimates<=4u);
  }
- sim_front_edge=6;sim_back_edge=30;
+ sim_front_edge=6;
  simulated_o2_front=151.5f;
+#if KC_O2_UTURN
+ /* O2 U-turns: lock radius +-8%, servo lag +-25%, swerve speed 45-58 cm/s,
+  * brake skid 0.5-1.5x, heading at the corner +-2 deg. RIGHT route (LEFT
+  * U-turn) must land 56 cm over (back IR ~17.7, as 90+10+90); LEFT route
+  * (RIGHT U-turn) at least the legacy 180's 57 and at most 72 (back IR
+  * <= ~32 of the 40 the face check allows). On 180, pose known.
+  * Starts: 0 standing (after a recovery), 1 rolling in from the face at
+  * face speed, 2 rolling in with nothing beside the robot afterwards
+  * (narrow O2): that one must brake for the standing check and search. */
+ for(int route=1;route<=2;route++)for(int kind=0;kind<3;kind++){
+  if(!(KC_O2_UTURN&(route==2?1:2)))continue;
+  if(kind && !KC_O2_UTURN_ROLL)continue;
+  float rs[]={0.92f,1,1.08f},lg[]={0.75f,1,1.25f},vm[]={45,51,58},sk[]={0.5f,1.5f},he[]={-2,0,2};
+  float wmin=1e9f,wmax=-1e9f,hmax=0,emax=0,rmin=1e9f,rmax=-1e9f,smax=0,stmax=0;unsigned tmax=0,tsum=0,n=0,braked=0;
+  float h0=route==2?-90.0f:90.0f,h1=-h0,x0=route==2?60.0f:-60.0f;
+  um_outer=route==2?1.0f:-1.0f;um_ir_back=kind==2?80.0f:20.0f;
+  for(int a=0;a<3;a++)for(int b=0;b<3;b++)for(int c=0;c<3;c++)for(int d=0;d<2;d++)for(int e=0;e<3;e++){
+   um_rscale=rs[a];um_lag=lg[b];um_vmax=vm[c];um_skid=sk[d];
+   reset();KcTask2 t;KcT2Input i=input();assert(kc_start(&t,hooks,&i,1,0));
+   t.side2=(uint8_t)route;t.h=h0;t.x=x0;t.y=140;i.heading=h0+he[e];i.ox=10;i.oy=20;um_goal=NAN;
+   if(kind){advance(&t,&i);kc_uturn_begin(&t,&i,h0+he[e],1);}
+   else{t.phase=KCT_O2_CORNER;advance(&t,&i);}
+   assert(t.phase==KCT_O2_UTURN);
+   unsigned ms=um_run(&t,&i);
+   enum KcPhase want=(KC_O2_UTURN_ROLL && kind!=2)?KCT_O2_BACK_EDGE:KCT_O2_BACK_ACQUIRE;
+   /* A slow servo at top speed may not hold 180 within 3 deg inside 30 cm:
+    * it then brakes and uses the standing check (counted, not an error). */
+   if(want==KCT_O2_BACK_EDGE && t.phase==KCT_O2_BACK_ACQUIRE && um_dist-t.ud0>=KCU_END_MAX){braked++;want=KCT_O2_BACK_ACQUIRE;}
+   if(t.phase!=want)fprintf(stderr,"uturn route %d kind %d r%.2f lag%.2f v%.0f skid%.1f h%+.0f: phase %d\n",route,kind,rs[a],lg[b],vm[c],sk[d],he[e],t.phase);
+   assert(t.phase==want);
+   if(want==KCT_O2_BACK_EDGE)assert(t.move_live && commands[starts-1]==KCT_FWD && t.acquired && fabsf(t.back_gap-20)<0.01f);
+   assert(isfinite(um_goal) && fabsf(um_goal-h1)<0.01f && fabsf(t.h-h1)<0.01f);
+   /* Both routes move toward +Y (O2's back) in this frame. */
+   float w=um_ty-20,hd=um_h*57.29578f-h1;
+   float hs=kc_rad(h0+he[e]);
+   float cx=x0+(um_tx-10)-8.2f*(sinf(um_h)-sinf(hs)),cy=140+(um_ty-20)+8.2f*(cosf(um_h)-cosf(hs));
+   float pe=hypotf(t.x-cx,t.y-cy);
+   /* Along the back face, from the corner start (+ = toward the far end). */
+   float along=(route==2?-1.0f:1.0f)*(cx-x0);
+   if(w<wmin)wmin=w;if(w>wmax)wmax=w;if(fabsf(hd)>hmax)hmax=fabsf(hd);if(pe>emax)emax=pe;
+   if(um_reach<rmin)rmin=um_reach;if(um_reach>rmax)rmax=um_reach;if(t.ustraight>smax)smax=t.ustraight;
+   if(along>stmax)stmax=along;
+   if(ms>tmax)tmax=ms;tsum+=ms;n++;
+   if(getenv("UTURN_VERBOSE"))
+    fprintf(stderr,"  route %d kind %d r%.2f lag%.2f v%.0f skid%.1f h%+.0f: shift %.1f head %+.1f pose err %.1f straight %.1f along %.1f reach %.1f ms %u\n",
+     route,kind,rs[a],lg[b],vm[c],sk[d],he[e],w,hd,pe,t.ustraight,along,um_reach,ms);
+  }
+  fprintf(stderr,"O2 %s route U-turn (%s lock, %s), %u cases: shift %.1f..%.1f cm (target %.0f), heading within %.1f deg, pose error <= %.1f cm, "
+   "straight <= %.1f cm, outer corner reach %.1f..%.1f cm, ends <= %.1f cm along the back face, %.2f s mean, %.2f s worst, %u braked instead of rolling out\n",
+   route==2?"RIGHT":"LEFT",route==2?"left":"right",kind==0?"standing start":kind==1?"rolling":"rolling, narrow O2",
+   n,wmin,wmax,route==2?KCU_SHIFT:KCU_SHIFT_R,hmax,emax,smax,rmin,rmax,stmax,tsum/1000.0f/n,tmax/1000.0f,kind==2?0u:braked);
+  assert(braked*10<=n); /* rolling out is the normal case */
+  /* Pose error is the +-50% brake skid, along the back face; a slow servo
+   * can end the 180 hold at its 30 cm cap ~3 deg off (the back face corrects). */
+  if(route==2)assert(wmin>=53 && wmax<=62);else assert(wmin>=55 && wmax<=72);
+  assert(hmax<=3.5f && emax<=3.0f && tmax<=3500);
+  um_rscale=um_lag=um_skid=1;um_vmax=51;um_outer=1;um_ir_back=20;
+ }
+#endif
  reset();KcTask2 t;KcT2Input i=input();i.gyro=24;assert(!kc_start(&t,hooks,&i,1,1));assert(starts==0);
  i=input();assert(kc_start(&t,hooks,&i,1,1));i.now+=2100;i.imu_at=i.now;kc_step(&t,&i);assert(t.phase==KCT_ERROR&&starts==0);
  reset();i=input();assert(kc_start(&t,hooks,&i,1,1));
@@ -159,11 +295,44 @@ int main(void){
  i.progress=t.amount;i.motion_status=1;advance(&t,&i);i.motion_status=0;
  for(int k=0;k<3;k++){i.us=26;advance(&t,&i);}
  assert(t.phase==KCT_O2_VISION&&t.arrow==1);
- advance(&t,&i);assert(t.phase==KCT_O2_TARGET&&t.side2==1);
+ /* Ranged for LEFT (26 cm) with the arrow already known and no move since:
+  * the repeat range check is skipped. */
+ advance(&t,&i);assert(t.side2==1&&t.phase==(t.cap==2?KCT_O2_TARGET:KCT_O2_FIRST));
+ /* Narrow O2 (robot 2026-10-15, ~25 cm wide, LEFT route): the U-turn
+  * stopped at x 12.5, past the back face's far end, and the side IR saw
+  * nothing. Reverse along the back lane until the face shows, then go on. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
+ t.phase=KCT_O2_BACK_ACQUIRE;t.entered=i.now;t.side2=1;t.h=-90;t.x=12.54f;t.y=178.08f;t.o2_end_x=-20.37f;i.heading=-90;
+ i.left_ir=24.6f;i.right_ir=80;
+ for(int k=0;k<10&&t.phase==KCT_O2_BACK_ACQUIRE;k++)advance(&t,&i);
+ assert(t.phase==KCT_O2_BACK_SEARCH&&t.back_searched&&starts==1&&commands[0]==KCT_REV&&amounts[0]==45);
+ i.progress=4;advance(&t,&i);assert(t.phase==KCT_O2_BACK_SEARCH);
+ i.right_ir=21;i.progress=8;brake_distance=8;advance(&t,&i);assert(t.phase==KCT_O2_BACK_SEARCH);
+ i.progress=10;brake_distance=10;advance(&t,&i);
+ assert(t.phase==KCT_O2_BACK_ACQUIRE && fabsf(t.x-2.54f)<0.01f);
+ i.progress=0;advance(&t,&i);advance(&t,&i);
+ assert(t.phase==KCT_O2_BACK_EDGE && starts==2 && commands[1]==KCT_FWD && t.acquired);
+ /* The whole 45 cm without the face: error, no second search. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
+ t.phase=KCT_O2_BACK_ACQUIRE;t.entered=i.now;t.side2=1;t.h=-90;t.x=12.54f;t.y=178.08f;t.o2_end_x=-20.37f;i.heading=-90;
+ i.left_ir=24.6f;i.right_ir=80;
+ for(int k=0;k<10&&t.phase==KCT_O2_BACK_ACQUIRE;k++)advance(&t,&i);
+ assert(t.phase==KCT_O2_BACK_SEARCH);
+ i.progress=45;i.motion_status=1;advance(&t,&i);
+ assert(t.phase==KCT_ERROR && starts==1);
+ i.motion_status=0;
+ /* LEFT O2 band is 24.5-28.5: a run stopping at 27.5 needs no correction,
+  * 24.0 is still corrected (IR would be too close after the turn). */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_O2_TARGET;t.side2=1;t.expected_range=28.3f;
+ for(int k=0;k<3;k++){i.us=28.3f;advance(&t,&i);}
+ assert(starts==0&&t.phase==KCT_O2_FIRST);
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_O2_TARGET;t.side2=1;t.expected_range=24.0f;
+ for(int k=0;k<3;k++){i.us=24.0f;advance(&t,&i);}
+ assert(starts==1&&commands[0]==KCT_REV);
  /* RIGHT back-clearance advance shifts the next turn outward, not sideways. */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,3));
  t.phase=KCT_O2_BACK_TURN;t.side2=2;t.x=49.12f;t.y=157.26f;t.h=0;
- advance(&t,&i);assert(t.move==KCT_FWD&&t.amount==10&&t.speed==KC_O2_FACE_SPEED&&!t.guard_us);
+ advance(&t,&i);assert(t.move==KCT_FWD&&t.amount==10&&t.speed==KC_O2_CLEAR_SPEED&&!t.guard_us);
  i.progress=10.3f;i.motion_status=1;advance(&t,&i);
  assert(fabsf(t.x-49.12f)<0.01f&&fabsf(t.y-167.56f)<0.01f);
  i.motion_status=0;advance(&t,&i);assert(t.move==KCT_LEFT&&t.amount==90);
@@ -188,6 +357,28 @@ int main(void){
  advance(&t,&i);assert(t.active&&starts==3);
  advance(&t,&i);assert(!t.active&&t.phase==KCT_ERROR&&starts==3);
  i.motion_status=0;
+ /* Fast back face (O2 centred): near end found at x=-86.76; back leg from
+  * x=-65.25 runs at KC_O2_BACK_FAST for 107 cm, then switches to face speed
+  * without braking; an early end during the fast part brakes at once. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.side2=1;t.h=-90;i.heading=-90;
+ t.phase=KCT_O2_BACK_ACQUIRE;t.entered=i.now;t.x=-65.25f;t.y=222;t.o2_end_x=-86.76f;
+ i.right_ir=17;for(int k=0;k<3&&starts==0;k++)advance(&t,&i);
+ assert(starts==1&&commands[0]==KCT_FWD&&t.speed==KC_O2_BACK_FAST&&t.back_fast&&fabsf(t.back_fast_until-107.0f)<0.5f);
+ i.progress=60;advance(&t,&i);assert(starts==1&&t.back_fast);
+ {unsigned st=stops;i.progress=107.5f;advance(&t,&i);
+  assert(starts==2&&stops==st&&!t.back_fast&&t.speed==KC_O2_FACE_SPEED&&t.phase==KCT_O2_BACK_EDGE&&fabsf(t.x-(-65.25f+107.5f))<0.5f);}
+ i.progress=0;
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.side2=1;t.h=-90;i.heading=-90;
+ t.phase=KCT_O2_BACK_ACQUIRE;t.entered=i.now;t.x=-65.25f;t.y=222;t.o2_end_x=-86.76f;
+ i.right_ir=17;for(int k=0;k<3&&starts==0;k++)advance(&t,&i);
+ i.progress=30;i.right_ir=80;advance(&t,&i);  /* end much earlier than predicted */
+ assert(stops>=1&&starts==2&&!t.back_fast&&t.speed==KC_O2_FACE_SPEED);
+ i.progress=0;
+ /* A narrow O2 (near end 30 cm out) gets no fast part. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.side2=2;t.h=90;i.heading=90;
+ t.phase=KCT_O2_BACK_ACQUIRE;t.entered=i.now;t.x=14.16f;t.y=223;t.o2_end_x=30.16f;
+ i.left_ir=17;for(int k=0;k<3&&starts==0;k++)advance(&t,&i);
+ assert(starts==1&&t.speed==KC_O2_FACE_SPEED&&!t.back_fast);
  /* Move ends with nothing beside the robot (end missed): never drive on. */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.side2=1;t.acquired=1;t.edge_segments=0;
  kc_begin_move(&t,KCT_FWD,16,100,KCT_O2_BACK_EDGE,i.now);t.edge_started=i.now;
@@ -295,12 +486,14 @@ int main(void){
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_PARK;t.entered=i.now;
  i.us=90.17f;i.left_ir=25;i.right_ir=24;
  for(int k=0;k<3;k++)advance(&t,&i);
- assert(t.phase==KCT_MOVE&&t.move==KCT_FWD&&t.amount==40&&t.speed==22);
+ /* Approach legs of 35 cm or more run at transit speed: the distance-based
+  * PWM cap (5000/3000/850) still brings the robot in slowly at the end. */
+ assert(t.phase==KCT_MOVE&&t.move==KCT_FWD&&t.amount==40&&t.speed==100);
  i.progress=40.4f;i.motion_status=1;advance(&t,&i);i.motion_status=0;
  assert(fabsf(t.park_forward_total-40.4f)<.01f);
  i.us=49.77f;
  for(int k=0;k<3;k++)advance(&t,&i);
- assert(t.phase==KCT_MOVE&&t.amount==38&&t.speed==12);
+ assert(t.phase==KCT_MOVE&&t.amount==38&&t.speed==100);
  i.progress=38.2f;i.motion_status=1;advance(&t,&i);i.motion_status=0;i.us=11.57f;
  for(int k=0;k<3;k++)advance(&t,&i);
  assert(t.phase==KCT_DONE&&starts==2&&fabsf(t.park_forward_total-78.6f)<.01f);
@@ -378,7 +571,7 @@ int main(void){
  assert(t.phase==KCT_ENTRY_ALIGN);advance(&t,&i);assert(t.phase==KCT_CENTRE);
  advance(&t,&i);assert(t.move==KCT_RIGHT&&t.speed==50);
  i.heading=135;i.motion_status=1;i.progress=22;advance(&t,&i);i.motion_status=0;
- advance(&t,&i);assert(t.move==KCT_FWD&&t.amount==58&&t.speed==22);
+ advance(&t,&i);assert(t.move==KCT_FWD&&t.amount==58&&t.speed==100);
  i.progress=60.1f;i.motion_status=0;i.heading=135;advance(&t,&i);
  assert(t.phase==KCT_ERROR); /* Diagonal outside checked travel budget brakes. */
  /* Reposition overrun beyond the safe interval cannot start a turn. */

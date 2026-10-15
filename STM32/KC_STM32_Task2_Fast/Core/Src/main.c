@@ -8426,6 +8426,10 @@ void rxSerialParse(void)
     }
     else if(strcmp(component,"T2")==0){
         if(strcmp(command,"INFO")==0){uartSend("!KC_T2/BUILD/2/0;");return;}
+        /* The first PING can arrive while kc_start is still sending its
+         * events, before kc_active is set (robot 2026-10-15: one
+         * TASK2KC_TOKEN at 0.1 s). The token is already this run's. */
+        if(strcmp(command,"PING")==0 && (uint32_t)param2Temp==kc_run_token){kc_ping_at=HAL_GetTick();return;}
         if(!kc_active || (uint32_t)param2Temp!=kc_run_token){
             snprintf(result,sizeof(result),"!%d/ERROR/TASK2KC_TOKEN;",cmdidTemp);uartSend(result);return;
         }

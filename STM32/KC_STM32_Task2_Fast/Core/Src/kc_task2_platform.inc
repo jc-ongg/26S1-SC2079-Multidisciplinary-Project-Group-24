@@ -54,10 +54,18 @@ static void kc_odometry(void){
 /* Continuous drive for the fast O1 swerve. Writes the servo register
  * directly: setServoAngle() blocks for 100 ms. Lock turns copy motorTurn:
  * outer wheel driven, inner wheel braked, as in the radius calibration. */
+static void kc_encoder_sample(void);
 static void kc_platform_drive(int mode,float offset,unsigned pwm){
  if(kc_drive_mode<0){
-  taskENTER_CRITICAL();currentAngle=0;isTurning=1;isFrontCalib=0;lastAngleUpdateTime=HAL_GetTick();taskEXIT_CRITICAL();
-  kc_drive_pwm=0;
+  /* Rolling hand-over from a legacy straight (O2 face end into the U-turn,
+   * v17): stop calling its PID, keep its heading change (it lives in
+   * currentAngle while it tracks) and keep the wheels' speed. */
+  uint8_t rolling=kc_sub_live && !kc_sub_settling;
+  if(kc_sub_live){kc_encoder_sample();kc_sub_live=0;kc_sub_settling=0;kc_sub_status=0;kc_native_fast_forward=0;}
+  taskENTER_CRITICAL();
+  if(isTurning)globalHeading+=currentAngle;
+  currentAngle=0;isTurning=1;isFrontCalib=0;lastAngleUpdateTime=HAL_GetTick();taskEXIT_CRITICAL();
+  kc_drive_pwm=rolling?(int)(pwm>7000u?7000u:pwm):0;
  }
  kc_drive_mode=(int8_t)mode;
  int target=pwm>7000u?7000:(int)pwm;
@@ -105,7 +113,8 @@ static float kc_platform_stop(void){
  /* motorStop() lets the wheels coast (~12 cm from O2 face speed 30) and the
   * coast never reached the pose. Short-brake (both inputs high) and wait
   * until the encoders are quiet, so the stopping distance is counted. */
- if(fabsf(kc_odo_speed)>2.0f){
+ float stop_speed=fabsf(kc_odo_speed);
+ if(stop_speed>2.0f){
   motorForwardA(0);motorForwardB(0);
   uint16_t a=(uint16_t)__HAL_TIM_GET_COUNTER(&htim2),b=(uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
   uint32_t t0=HAL_GetTick(),quiet=t0;
@@ -113,6 +122,12 @@ static float kc_platform_stop(void){
    osDelay(10);
    uint16_t na=(uint16_t)__HAL_TIM_GET_COUNTER(&htim2),nb=(uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
    if(na!=a || nb!=b){a=na;b=nb;quiet=HAL_GetTick();}
+  }
+  /* The braked rear wheels lock and the robot skids on, unseen by the
+   * encoders: 5 cm from 57 cm/s on the O1 diagonal (KCF_RF_SKID), ~v^2. */
+  if(kc_sub_live && (kc_subcmd.command==FWD || kc_subcmd.command==REVS)){
+   kc_encoder_sample();
+   kc_progress+=KCF_RF_SKID*(stop_speed/57.0f)*(stop_speed/57.0f);
   }
  }
  motorStop();kc_native_fast_forward=0;kc_drive_mode=-1;kc_drive_pwm=0;
@@ -125,11 +140,27 @@ static float kc_platform_stop(void){
  return kc_progress<0 && kc_progress>=-0.25f?0:kc_progress;
 }
 static void kc_platform_start(int move,unsigned speed,unsigned amount){
+ /* New straight move while one is still running (speed change on the O2
+  * back face): motorPidForward's init zeroes currentAngle, so commit it
+  * first or the heading jumps. */
+ if(kc_sub_live && !kc_sub_settling && (kc_subcmd.command==FWD || kc_subcmd.command==REVS)){
+  taskENTER_CRITICAL();globalHeading+=currentAngle;currentAngle=0;taskEXIT_CRITICAL();
+ }
+ /* Rolling hand-over from a continuous drive (U-turn into the back face,
+  * v17): same commit; the PID takes the motors from the next tick. */
+ if(kc_drive_mode>=0){
+  taskENTER_CRITICAL();if(isTurning){globalHeading+=currentAngle;currentAngle=0;}taskEXIT_CRITICAL();
+  kc_drive_mode=-1;kc_drive_pwm=0;
+ }
  kc_native_fast_forward=(move==KCT_FWD && speed==100);
  kc_subcmd.command=move==KCT_FWD?FWD:move==KCT_REV?REVS:move==KCT_LEFT?TURNL:move==KCT_RIGHT?TURNR:REVL;
  kc_subcmd.param1Speed=speed*71;kc_subcmd.param2DistAngle=amount;kc_subcmd.cmdId=kc_run_token;
  kc_progress=0;kc_enc_a=(uint16_t)__HAL_TIM_GET_COUNTER(&htim2);kc_enc_b=(uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
  kc_sub_live=1;kc_sub_init=1;kc_sub_status=0;kc_sub_settling=0;
+}
+/* After the continuous U-turn: legacy straights hold, and turns add to, desiredHeading. */
+static void kc_platform_goal(float heading){
+ taskENTER_CRITICAL();desiredHeading=heading;taskEXIT_CRITICAL();
 }
 static void kc_platform_event(const char *event,float a,float b){
  char msg[128];
@@ -159,7 +190,7 @@ static void kc_platform_abort(void){
 static uint8_t kc_platform_tick(MotorCommand_t command,uint8_t entering){
  if(entering){
   kc_platform_stop();kc_run_token=command.cmdId;kc_ping_at=HAL_GetTick();kc_reply_side=0;kc_reply_failed=0;kc_failure[0]=0;
-  KcT2Hooks hooks={kc_platform_start,kc_platform_stop,kc_platform_event,kc_platform_drive};KcT2Input i=kc_platform_input();
+  KcT2Hooks hooks={kc_platform_start,kc_platform_stop,kc_platform_event,kc_platform_drive,kc_platform_goal};KcT2Input i=kc_platform_input();
   kc_odometry_reset(i.heading);i=kc_platform_input();
   if(!kc_start(&kc_engine,hooks,&i,command.cmdId,command.param2DistAngle)){
    /* Say which start check failed: yaw rate (must be <=3 deg/s), IMU sample age (<=250 ms), gyro calibrated. */

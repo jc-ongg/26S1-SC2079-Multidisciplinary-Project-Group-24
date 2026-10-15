@@ -55,7 +55,7 @@ int main(void){
  isTurning=1;sample=kc_platform_input();assert(fabsf(sample.heading+182.2f)<.001f);
  globalHeading=225;currentAngle=1.9f;sample=kc_platform_input();assert(fabsf(sample.heading-226.9f)<.001f);
  globalHeading=currentAngle=0;isTurning=0;
- KcT2Hooks hooks={kc_platform_start,kc_platform_stop,kc_platform_event,kc_platform_drive};
+ KcT2Hooks hooks={kc_platform_start,kc_platform_stop,kc_platform_event,kc_platform_drive,kc_platform_goal};
  KcT2Input i=kc_platform_input();assert(kc_start(&kc_engine,hooks,&i,77,1));kc_active=1;
  kc_move_to(&kc_engine,KCT_FWD,100,10,KCT_O1_RANGE,now);
  tick(1000);assert(kc_sub_settling&&kc_sub_live&&kc_sub_status==0&&pid_calls==1);
@@ -74,11 +74,38 @@ int main(void){
   * encoders before releasing, instead of motorStop's coast. */
  kc_odo_speed=30;pwm_a=pwm_b=500;{uint32_t t0=now;unsigned b0=brakes;kc_platform_stop();
  assert(pwm_a==0&&pwm_b==0&&now-t0>=60&&brakes==b0+1);}kc_odo_speed=0;
+ /* A new straight move started while one runs (back-face speed change)
+  * commits the gyro angle first: motorPidForward's init zeroes it. */
+ kc_platform_start(KCT_FWD,90,147);kc_sub_settling=0;globalHeading=10;currentAngle=2.5f;isTurning=1;
+ kc_platform_start(KCT_FWD,50,100);assert(fabsf(globalHeading-12.5f)<1e-4f&&currentAngle==0);
+ kc_sub_live=0;globalHeading=currentAngle=0;isTurning=0;
+ /* A braked straight move adds the unseen skid: 5 cm x (57/57)^2 at 57 cm/s. */
+ kc_platform_start(KCT_FWD,50,100);htim2.count+=500;htim3.count-=500;kc_odo_speed=57;
+ {float d=kc_platform_stop();float seen=500*WHEEL_CIRCUMFERENCE_CM/ENCODER_COUNTS_PER_REVOLUTION;
+  assert(fabsf(d-(seen+5.0f))<0.05f);}kc_odo_speed=0;
  kc_platform_drive(KCF_DRIVE_STRAIGHT,0,3550);assert(isTurning&&pwm_a==40&&pwm_b==40);
  kc_platform_drive(KCF_DRIVE_BRAKE,0,0);assert(pwm_a==0&&pwm_b==0&&htim12.count==SERVO_CENTER+3);
  kc_platform_drive(KCF_DRIVE_BRAKE_RIGHT,0,0);assert(pwm_a==0&&pwm_b==0&&htim12.count==SERVO_RIGHT_MAX);
  kc_platform_drive(KCF_DRIVE_REV_RIGHT,0,2500);assert(pwm_a==-40&&pwm_b==-1000);
  kc_platform_drive(KCF_DRIVE_REV_LEFT,0,2500);assert(pwm_a==-1000&&pwm_b==-80&&htim12.count==SERVO_LEFT_MAX);
  kc_platform_drive(KCF_DRIVE_REV_STRAIGHT,0,1600);assert(pwm_a==-120&&pwm_b==-120);
- puts("Native adapter holds brake, includes coasting travel, and does not restart completed PID; fast-O1 brake/reverse modes drive the right pins.");
+ /* O2 U-turn hand-back: the stop commits the gyro angle, then the legacy
+  * heading goal (held by straights, added to by turns) moves to 180 later. */
+ kc_platform_stop();globalHeading=-90;currentAngle=0;desiredHeading=-90;
+ kc_platform_drive(KCF_DRIVE_LEFT,0,3550);assert(isTurning&&htim12.count==SERVO_LEFT_MAX);
+ currentAngle=178.5f;kc_platform_stop();
+ assert(!isTurning&&kc_drive_mode==-1&&fabsf(globalHeading-88.5f)<0.01f&&currentAngle==0);
+ kc_platform_goal(90);assert(desiredHeading==90);
+ /* v17 rolling hand-overs. Face end into the U-turn: the legacy straight's
+  * heading change (currentAngle) is kept, its PID is no longer called and
+  * the wheels keep their PWM. */
+ kc_platform_stop();globalHeading=-90;
+ kc_platform_start(KCT_FWD,50,100);kc_sub_init=0;isTurning=1;currentAngle=1.25f;
+ kc_platform_drive(KCF_DRIVE_LEFT,0,3550);
+ assert(!kc_sub_live&&kc_drive_mode==KCF_DRIVE_LEFT&&kc_drive_pwm==3550&&isTurning&&currentAngle==0&&fabsf(globalHeading+88.75f)<0.01f);
+ /* U-turn into the back face: the drive's angle is committed before the
+  * PID (whose init zeroes currentAngle) takes the motors. */
+ currentAngle=178.5f;kc_platform_start(KCT_FWD,90,85);
+ assert(kc_sub_live&&kc_sub_init&&kc_drive_mode==-1&&currentAngle==0&&fabsf(globalHeading-89.75f)<0.01f);
+ puts("Native adapter holds brake, includes coasting travel, and does not restart completed PID; fast-O1 brake/reverse modes drive the right pins; U-turn hands the heading goal back.");
 }

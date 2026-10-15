@@ -1,6 +1,95 @@
 # Smooth O1 with reverse finish (Claude, 2026-10-15)
 
-Newest: `KC_Task2_Claude_SmoothO1_FastO2_v11.hex` (v10's faster O2 plus the ranging fix below; not yet flashed on the robot). `KC_Task2_Claude_SmoothO1_FastO2_v10.hex` is the version robot-tested on 2026-10-15: 6 of 7 full runs parked. `KC_Task2_Claude_SmoothO1_v9.hex` is kept as the slower O2 fallback.
+Newest: `KC_Task2_Claude_SmoothO1_FastO2_v17.hex` (v16c plus no stop before or after the O2 U-turn; not yet robot-tested). `KC_Task2_Claude_SmoothO1_FastO2_v16c.hex`: U-turn on both routes with a brake before and after, narrow-O2 back-face search, start-up PING fix (not yet robot-tested). `KC_Task2_Claude_SmoothO1_FastO2_v16c_legacyLeft180.hex`: the same with v15's legacy RIGHT 180 on the LEFT route. `KC_Task2_Claude_SmoothO1_FastO2_v15.hex`: RIGHT-route U-turn, robot-tested (O1 LEFT + O2 RIGHT, 2 of 2 parked). `KC_Task2_Claude_SmoothO1_FastO2_v13.hex`: fast back face, robot-tested (3 runs parked, 37.3 to 39.5 s).
+
+## v17: no stop before or after the O2 U-turn
+
+- **Rolling in.** When the front face ends (3 IR readings over 60 cm), the U-turn starts at face speed without braking: the pose is taken from the face move's travel, the legacy PID is released and the steering swings in from centre. `o2_end_x` gets the 10 cm the brake used to add, so the back face's fast part ends where it did before. Log: `UTURN_ROLL_IN/<speed>/<x>`.
+- **Rolling out.** On the straight at 180 degrees the side IR is read on the move. Two readings 10 to 40 cm apart by at most 3 cm, heading within 3 degrees and at least 4 cm run: the pose comes from odometry (no brake, no skid) and the back face starts at once (`UTURN_ROLL_OUT/<back IR>/<speed>`, then `BACK_FAST` as before).
+- **Fallbacks.** A reading under 10 cm, two open readings once the heading has settled (narrow O2), or 30 cm without the face: brake, then the standing check and the back-face search of v16c.
+- **Hand-overs in the adapter.** Into the U-turn, `kc_platform_drive` stops calling the legacy PID, commits its `currentAngle` into `globalHeading` and keeps the wheels' PWM. Out of it, `kc_platform_start` commits the drive's angle before the PID's init zeroes it. `test_platform_settle.c` checks both.
+- **Simulation** (`test_task2.c`, 162 cases per route and start): rolling U-turns take 2.0 s (RIGHT route) and 2.1 s (LEFT route) from the face end to the back face, against about 2.2 to 2.4 s plus a brake and a standing check before. Shifts are unchanged (55.0 to 58.1 and 56.0 to 66.5 cm). Measured from where the face end was detected, the outer front corner reaches 44 to 54 cm, about the same as braking first (the brake adds about 9 cm). With a slow servo at top speed, 2 of 162 RIGHT-route cases brake instead of rolling out.
+- The test's back face now ends at the near end's mirror image (O2 centred), not a fixed 30 cm after the back-face move starts.
+- `KC_O2_UTURN_ROLL 0` restores v16c's brake before and after.
+
+## v16c: narrow O2 back face, start-up PING
+
+v16 on the robot (O1 LEFT, O2 LEFT, O2 about 25 cm wide): the RIGHT U-turn worked (58.2 cm over, 0.7 degrees off, 3.5 s) but stopped at x 12.5. The continuous U-turn ends about 12 cm further along the back face than the legacy 180 (the steering centring at speed, then the brake slide). That was past this O2's far end, the side IR saw nothing for 2 s, and the run ended `ERROR_BACK_NOT_ACQUIRED`. The RIGHT route on v15 would do the same with an O2 this narrow.
+
+- **Back-face search.** If the side IR shows nothing beside the robot for 0.5 s after the corner, it reverses at speed 16 along the back lane (`BACK_SEARCH/<IR>/<x>`, up to 45 cm). Two face readings (10 to 40 cm) brake it (`BACK_FOUND`), and the standing check and the back face continue as before. If the face never shows, the run ends `ERROR_BACK_NOT_ACQUIRED` (or `ERROR_BACK_SEARCH` on a guard). It runs at most once per run and never on an O2 wide enough for the IR to see the face where the corner ends.
+- **Start-up PING.** The STM32 sends its start-up events before it marks the run active, and the Pi's first heartbeat can arrive in between: one `!<id>/ERROR/TASK2KC_TOKEN;` at 0.1 s (harmless, the next heartbeat 0.5 s later counts). A PING with the current run's token is now accepted at any time.
+- `test_task2.c` replays the robot run: no face, reverse, face found after 10 cm, back face started. A second case reverses the full 45 cm and fails.
+
+## v16: U-turn on both routes, faster return planner
+
+v15 on the robot (O1 LEFT, O2 RIGHT, 2 runs, both parked): the U-turn shifted 59.9 and 59.1 cm (predicted 57.0 and 56.7), ended 0.3 and 1.0 degrees off 180, took 3.3 s, and the back IR read about 23 cm.
+
+- **LEFT route.** The legacy RIGHT 180 (4.0 s, slow last 30 degrees) is now the same continuous U-turn, mirrored on right lock. Two right-lock quarters already move about 61 cm sideways, more than the legacy 180's 57 (`KCU_SHIFT_R`), so the straight between them is skipped unless the lock radius is small. Simulation, 162 cases: 55.6 to 66.9 cm sideways, within 2.5 degrees of 180, 2.5 s on average and 3.0 s at worst. The back face is about 5 to 9 cm further away than with the legacy 180 (legacy back IR was 14 to 17 cm). The outer front corner reaches about 47 cm past the corner start on the face side, about 4 cm further than the legacy 180.
+- `KC_O2_UTURN` is now a bit mask: 1 for the RIGHT route, 2 for the LEFT route, 3 (default) for both, 0 for the legacy corners.
+- **Return planner.** In the v15 runs the robot sat still for 4.4 s and 2.9 s after the return turn (`RETURN_CLEAR`) while the STM32 checked 720,000 and 448,000 footprint poses. The trim search asked the entry planner about 30 times with the same template. v16 caches each entry position's result per template and stops that inner search at the first 5 cm safe interval, since the trim only needs a yes or no. The plans are identical: 18,002 random comparisons against the v15 planner gave no difference, and both v15 runs give the same plan (287.50/46 and 200.50/26) from 19,222 and 18,880 checks. Expected wait: about 0.1 s.
+- Nothing else on the return or park changed.
+
+## v15: one continuous U-turn at O2's corner (RIGHT arrow on O2)
+
+The RIGHT route used to go round O2's end with LEFT 90, 10 cm forward at speed 30, LEFT 90: three stops and about 5 s (the LEFT route's single 180 takes 4.0 s). The 10 cm is needed because two left-lock 90s move the robot only about 46 cm sideways, which put the back face 7.7 cm from the IR with the wheel nearly touching. A plain continuous LEFT 180 has the same problem, so v15 drives the same shape without stopping (`Core/Inc/kc_o2_uturn.h`):
+
+1. Steer to left lock at standstill (300 ms, as the legacy turn does).
+2. Left lock at the swerve PWM (3550) until the heading, plus what the steering still adds while it centres, reaches 90 degrees.
+3. Straight, holding 90 degrees, until the model says the second half lands 56 cm sideways (31 + 10 + 15, the old path's shift; back IR about 17.7 cm). The model uses the measured servo lag (time based, as in the fast O1) and this run's lock radius from the gyro. In simulation this straight is 8 to 15 cm.
+4. Left lock until the heading reaches 180 degrees the same way.
+5. Straight, holding 180 degrees, then brake once within 2 degrees (or after 30 cm).
+6. Pose from wheel and gyro odometry plus the brake skid estimate, as for the LEFT route's 180. Then the back face as before (stationary IR check, fast part, end check).
+
+The legacy straights and turns steer to `desiredHeading`, which a continuous-drive turn does not update. A new hook (`KcT2Hooks.goal`, `kc_platform_goal`) sets it to the new nominal heading after the U-turn, so the back face and the return turn aim the right way.
+
+Simulation (`test_task2.c`, 162 cases): lock radius ±8%, servo lag ±25%, swerve speed 45 to 58 cm/s, brake skid 0.5 to 1.5 times the O1 value, heading at the corner ±2 degrees. Every case landed 55.5 to 58.0 cm sideways, ended within 3.1 degrees of 180, and knew its pose within 2.6 cm. The pose error is the skid uncertainty and lies along the back face. The U-turn takes 2.3 s on average and 2.8 s at worst, plus the brake stop. The outside front corner reaches about 41 cm past the corner start on the face side, about 3 cm further than a legacy LEFT 90.
+
+Log lines: `UTURN_START/56/<heading>`, `UTURN_90/<sideways>/<heading>`, `UTURN_STRAIGHT/<straight cm>/<predicted shift>`, `UTURN/<shift>/<straight cm>`, `UTURN_TIME/<ms>/<heading error>`. New errors: `ERROR_UTURN_TIMEOUT` (5 s), `ERROR_UTURN_HEADING` (heading outside -20 to 209 degrees), `ERROR_UTURN_DISTANCE` (170 cm). A heading more than 5 degrees off after the brake gives `ERROR_FINAL_HEADING`, as for the legacy turns.
+
+Building with `-DKC_O2_UTURN=0` restores LEFT 90, 10 cm, LEFT 90. The LEFT route's 180 is unchanged.
+
+Check on the robot: in `UTURN`, the shift should be 53 to 62. The back IR in the first `O2_BACK_ACQUIRE` readings should be about 15 to 20 cm. Below 12 cm, raise `KCU_SHIFT`.
+
+## v14: faster return home, quicker O2 scan
+
+Return home:
+- On a lane more than 60 cm out from O1's side (after a wide O2) the side IR cannot see O1, so the slow O1 search is skipped. The robot drives straight to the planned entry start (`O1_POSE_ESTIMATE/<x>/<entry y>`) and the entry is planned from odometry, as v13 already did after a search that found nothing.
+- Straights of 35 cm or more on the way home run at speed 100 instead of 22 or 12: clearing O2, the crossing and trim straights, the entry diagonal and the park approach legs. The forward PID still caps PWM by remaining distance (5000 under 50 cm, 3000 under 20 cm, 850 under 10 cm), so each move ends as before. Shorter moves keep their old speed, because the 850 tail makes speed 100 slower over short distances.
+
+O2 scan:
+- If O2 was already ranged for the arrow that is then read, the repeat range check is skipped (`O2_RANGE_KEPT`).
+- The LEFT arrow's O2 range band is now 24.5 to 28.5 cm, so a stop at 27 to 28 cm needs no correction move.
+
+Expected savings (estimates): about 1.5 s with no O1 search on wide lanes, about 1 s on the long return straights, about 0.5 s on the park approach, about 0.7 s when an O2 correction move is avoided and 0.3 s from the skipped check.
+
+## v13: fast back face (O2 is centred on the O1-O2 line)
+
+A v12 timing log (O1 RIGHT, O2 LEFT, 140 cm O2):
+- smooth O1 5.8 s
+- O2 approach and arrow 2.8 s
+- 90° turn 1.7 s
+- front face 1.5 s
+- 180° turn 4.0 s
+- **back face 4.1 s** (100 cm + stop + 60 cm)
+- 90° turn 1.9 s
+
+The pauses between moves are only 0.1 to 0.2 s. The turns' slow last 30° are left unchanged: the measured turn geometry depends on them.
+
+- **Fast part of the back face.** The near end found on the front face (`o2_end_x`, robot pose at the corner stop) mirrors to the far end. The back face runs at `KC_O2_BACK_FAST` (90) until `KC_O2_BACK_SLOWDOWN` (45 cm: about 10 cm of near-end stop overshoot plus 35 cm to slow down) before it. It then switches to face speed 50 without stopping (`BACK_FAST/<cm>/<near end>`, then `BACK_FAST_END`), and the 3-reading end check runs as before.
+- **Early end.** During the fast part, the first IR reading over 40 cm brakes at once (`BACK_FAST_BRAKE`) and the normal check continues at face speed. That covers an O2 that is not centred.
+- **Narrow O2.** With less than 25 cm of fast part, the whole back face runs at face speed.
+- **Speed switch without stopping.** `kc_platform_start` commits `currentAngle` to `globalHeading` before a new straight move starts while one is running; `motorPidForward`'s init zeroes it.
+- **Expected saving:** about 1.5 to 2 s on a 140 cm O2.
+- **Tests.** `test_task2.c` covers the fast start, the switch without braking, the early-end brake and the narrow-O2 case. `test_platform_settle.c` covers the heading commit.
+
+## v12: faster O2 faces
+
+- `KC_O2_FACE_SPEED` is 50 (about 58 cm/s; was 30, about 35 cm/s), front and back faces.
+- The RIGHT route's 10 cm back clearance stays at speed 30 (`KC_O2_CLEAR_SPEED`): it is short and has to stop accurately.
+- An engine stop from a straight move now adds the unseen rear-wheel skid to the distance, using the O1 calibration: `KCF_RF_SKID` (5 cm) × (speed / 57 cm/s)². That is about 5 cm from speed 50 and 1.9 cm from 30.
+- An O2 end is now found about 18 cm past the edge (about 8 cm at speed 30): 3 IR readings plus brake and skid. That only adds clearance at the corner and moves the return lane about 10 cm further out, which the return planner covers.
+- For a 140 cm O2 this saves roughly 2.5 s against v11.
+- `test_platform_settle.c` checks the skid addition.
 
 ## v11: steady ultrasonic readings are accepted during ranging
 

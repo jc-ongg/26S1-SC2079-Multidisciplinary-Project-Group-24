@@ -89,7 +89,7 @@ static double us_read(double x1, double x2, double o2w) {
 typedef struct { int ok; double clr, clr2, end_y, end_h, end_x, t_ms, range2; } Result;
 
 static Result run(int arrow, double d0, double gap, double kR, double ramp, double y0, int arrow_ms) {
-    KcTask2 t; KcT2Hooks hooks = {h_start, h_stop, h_event, h_drive};
+    KcTask2 t; KcT2Hooks hooks = {h_start, h_stop, h_event, h_drive, NULL};
     memset(&bot, 0, sizeof bot); bot.x = -8.2; bot.y = y0;   /* robot centre at 0, as in firmware */
     /* `ramp` is now a scale on the measured steering lag TIME (1.0 = 0.445 s L->R) */
     sim_rl = KCF_R_LEFT * kR; sim_rr = KCF_R_RIGHT * kR; sim_ramp = ramp; sim_ramp_rl = ramp;
