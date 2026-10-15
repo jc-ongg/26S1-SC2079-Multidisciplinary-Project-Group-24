@@ -389,10 +389,23 @@ int main(void){
  i.motion_status=0;
  for(int k=0;k<2;k++){i.left_ir=17.7f;advance(&t,&i);}
  assert(t.phase==KCT_O2_BACK_EDGE&&t.acquired);
- /* The measured close gap remains rejected, even with the route change. */
+ /* The measured close gap (7.7) is the back face now: follow it, already
+  * steering 2 deg away from it (O2 on the left for side2==2: right, -). */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,3));t.phase=KCT_O2_BACK_ACQUIRE;t.side2=2;
- for(int k=0;k<22&&t.active;k++){i.left_ir=7.7f;advance(&t,&i);}
- assert(!t.active&&starts==0);
+ for(int k=0;k<22&&t.active&&t.phase==KCT_O2_BACK_ACQUIRE;k++){i.left_ir=7.7f;advance(&t,&i);}
+ assert(t.active&&t.phase==KCT_O2_BACK_EDGE&&starts==1&&fabsf(t.steer_off+KC_STEER_STEP)<0.01f);
+ /* Still too close while following: 2 deg more each reading, at most 6, no
+  * brake; clear of it (>= 12): straight again; never a stop. */
+ {unsigned st=stops;
+  for(int k=0;k<4;k++){i.left_ir=7.0f;i.progress=k+1;brake_distance=i.progress;advance(&t,&i);}
+  assert(t.active&&t.phase==KCT_O2_BACK_EDGE&&stops==st&&fabsf(t.steer_off+KC_STEER_MAX)<0.01f&&isfinite(um_goal));
+  i.left_ir=14.0f;i.progress=6;advance(&t,&i);
+  assert(t.active&&t.phase==KCT_O2_BACK_EDGE&&t.steer_off==0&&fabsf(um_goal-(t.origin_heading+t.h))<0.01f);
+  /* Close again, then the end: the goal is straight before the turn home. */
+  i.left_ir=8.0f;i.progress=7;advance(&t,&i);assert(t.steer_off!=0);
+  for(int k=0;k<3&&t.phase==KCT_O2_BACK_EDGE;k++){i.left_ir=80;i.progress=8+k;brake_distance=i.progress;advance(&t,&i);}
+  assert(t.steer_off==0&&fabsf(um_goal-(t.origin_heading+t.h))<0.01f);}
+ i.progress=0;
  /* LEFT route still goes directly into its previously tested right turn. */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,3));t.phase=KCT_O2_BACK_TURN;t.side2=1;
  advance(&t,&i);assert(t.move==KCT_RIGHT&&t.amount==90);

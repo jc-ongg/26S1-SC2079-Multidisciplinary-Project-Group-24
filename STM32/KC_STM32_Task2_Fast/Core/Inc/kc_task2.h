@@ -30,6 +30,17 @@
  * 19-20, then 43-62 from something ~50 cm beyond the end; the fixed >= 60
  * never held 3 times and the car drove 95 cm into it). Capped at the old 60. */
 #define KC_EDGE_CLEAR_MARGIN 15.0f
+/* Following a face, a side-IR reading under KC_STEER_CLOSE (the robot is
+ * about to rub O2) no longer brakes and stops the run (ERROR_IR_CLOSE): the
+ * heading goal turns KC_STEER_STEP away from O2 per reading, at most
+ * KC_STEER_MAX, and straight again from KC_STEER_CLEAR. The legacy straight
+ * holds that goal every tick; turns add to it, so it is reset before any
+ * turn. After the U-turn a standing reading of 4-10 cm is the back face
+ * (was rejected: ERROR_BACK_NOT_ACQUIRED after 2 s). */
+#define KC_STEER_CLOSE 10.0f
+#define KC_STEER_CLEAR 12.0f
+#define KC_STEER_STEP   2.0f
+#define KC_STEER_MAX    6.0f
 #define KC_EDGE_WALL_US 20.0f /* two forward echoes this close while following a face: stop */
 /* Narrow O2 (robot 2026-10-15, ~20-25 cm): the first 90 leaves the robot past
  * O2's end. 3 open IR readings start the reverse search at once (was a 0.4 s
@@ -80,6 +91,7 @@ typedef struct {
  float x,y,h, origin_heading, move_heading, start_x,start_y, amount;
  float o1_gap,o1_front,o2_front, us_anchor, group[3], range, last_progress;
  float o1_votes[12];          /* fast O1 start: echoes for the O1 range vote */
+ float steer_off;             /* deg added to the heading goal to steer off a too-close face */
  float expected_range, target, back_gap, edge_progress, metric[2], gap;
  float expected_heading, centre_diagonal, entry_y, return_y, centre_turn, trim_turn, turn_ox, turn_oy, turn_h0, us_rej_ref, o2_end_x, back_fast_until;
  unsigned speed;
@@ -197,6 +209,15 @@ static int kc_on_face(const KcTask2 *t,float v){return v<=40 && v<kc_edge_clear_
 /* Back face with the IR already on it: O2 is centred on the O1-O2 line, so
  * the far end mirrors the near one. Run fast until KC_O2_BACK_SLOWDOWN
  * before it, then face speed. */
+/* Heading goal = the grid heading plus `off` (deg, + = left). */
+static void kc_steer(KcTask2 *t,float off){
+ if(off==t->steer_off)return;
+ t->steer_off=off;
+ if(t->io.goal)t->io.goal(t->origin_heading+t->h+off);
+ kc_event(t,"IR_STEER",off,t->x);
+}
+/* Away from O2: O2 is on the right for side2==1 (right IR), so left (+). */
+static float kc_steer_away(const KcTask2 *t){return t->side2==1?1.0f:-1.0f;}
 static void kc_back_face_start(KcTask2 *t,const KcT2Input *i){
  t->acquired=1;t->ir_retry=0;t->edge_started=i->now;t->edge_segments=0;t->face_ref=t->back_gap;
  float s=t->o2_end_x>0?1.0f:-1.0f,fast=s*t->x+fabsf(t->o2_end_x)-KC_O2_BACK_SLOWDOWN;
@@ -490,7 +511,14 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
     kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_O2_BACK_EDGE,i->now);break;
    }
   }
-  if(!isfinite(v) || v<10){
+  if(isfinite(v) && v<KC_STEER_CLOSE){
+   /* Too close to the face: steer off it, keep driving (no brake). */
+   float off=t->steer_off+kc_steer_away(t)*KC_STEER_STEP;
+   if(fabsf(off)>KC_STEER_MAX)off=kc_steer_away(t)*KC_STEER_MAX;
+   kc_steer(t,off);t->count=0;break;
+  }
+  if(isfinite(v) && v>=KC_STEER_CLEAR && t->steer_off!=0)kc_steer(t,0);
+  if(!isfinite(v)){
    t->back_fast=0;
    if(t->ir_retry++){kc_fail(t,"ERROR_IR_CLOSE",i->now);break;}
    t->edge_after=t->phase==KCT_IR_EDGE?KCT_O2_CORNER:KCT_O2_RETURN_TURN;
@@ -505,6 +533,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   else if(v<=40)t->count=0; /* nearer than the clear level: still beside O2 */
   /* Between the face and the clear level (an object further out): keep the count. */
   if(t->count>=3){
+   kc_steer(t,0);   /* straight goal again before any turn */
    if(t->phase==KCT_IR_EDGE && KC_O2_UTURN_ROLL && t->io.drive && t->move_live && (KC_O2_UTURN&(t->side2==2?1:2))){
     /* Roll straight into the U-turn: pose now, no brake. The brake used to
      * add ~10 cm before o2_end_x was taken; keep the far-end estimate. */
@@ -544,6 +573,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   }else{t->count=0;t->samples=0;}
   break;}
  case KCT_O2_CORNER:
+  kc_steer(t,0);   /* every turn adds to the heading goal: straight first */
   if(t->io.drive && (KC_O2_UTURN&(t->side2==2?1:2))){kc_uturn_begin(t,i,actual,0);break;}
   if(KC_O2_CORNER_180 && t->side2==1){
    /* LEFT route: the two RIGHT 90s at the corner had nothing between them.
@@ -583,10 +613,12 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    t->back_searched=1;kc_event(t,"BACK_SEARCH",v,t->x);
    kc_begin_move(t,KCT_REV,16,45,KCT_O2_BACK_SEARCH,i->now);break;
   }
-  if(isfinite(v) && v>=10 && v<=40){
+  if(isfinite(v) && v>=4 && v<=40){
    t->metric[t->count%2]=v;t->count++;
    if(t->count>=2 && fabsf(t->metric[0]-t->metric[1])<=3){
     t->back_gap=(t->metric[0]+t->metric[1])/2;kc_back_face_start(t,i);
+    /* Close to the back face already: start off steering away from it. */
+    if(t->back_gap<KC_STEER_CLOSE)kc_steer(t,kc_steer_away(t)*KC_STEER_STEP);
    }
   }else t->count=0;
   break;}
@@ -605,6 +637,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   if(i->motion_status==1){kc_brake(t);kc_fail(t,"ERROR_BACK_NOT_ACQUIRED",i->now);}
   break;}
  case KCT_O2_RETURN_TURN:
+  kc_steer(t,0);
   kc_move_to(t,t->side2==1?KCT_RIGHT:KCT_LEFT,50,90,KCT_RETURN,i->now);break;
  case KCT_RETURN:{
   if(t->cap==3){kc_done(t,i->now);break;}
