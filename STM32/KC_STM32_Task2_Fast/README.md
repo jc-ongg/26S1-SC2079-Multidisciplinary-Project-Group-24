@@ -6,7 +6,14 @@
 python3 KC_task2_stm32_bridge.py --execute --stage full-pi-return --port /dev/ttyACM0 --laptop-ip 192.168.50.218
 ```
 
-Robot, 2026-10-16: 22 of 24 full runs parked, 22.8-28.9 s from START to parked (O1 + O2 on the STM32 14.8-20.6 s, Pi return 5.8-10.7 s), both O2 arrows, O1 60-150 cm away, O1-O2 gaps 60-150 cm, several O2 lengths. The Pi return used in those runs is the teammate's (fast-carpark branch, a newer copy on the robot than commit b94472f on GitHub); `pi/` here is not that version.
+Robot, 2026-10-16: 22 of 24 full runs parked, 22.8-28.9 s from START to parked (O1 + O2 on the STM32 14.8-20.6 s, Pi return 5.8-10.7 s), both O2 arrows, O1 60-150 cm away, O1-O2 gaps 60-150 cm, several O2 lengths. `pi/` holds the Pi files copied from the robot (`~/KC_STM32_Task2_Fast`) on 2026-10-16 after those runs:
+
+- `KC_task2_stm32_bridge.py`: the teammate's fast-carpark bridge (commit b94472f) with one vision change. A low-confidence arrow no longer ends the run; at a stop, two agreeing frames at 35% or more decide it.
+- `KC_task2_pi_return.py`: the teammate's newer Pi return (needs numpy), much changed from b94472f.
+- `KC_task2_return_test.py` and `test_pi_return.py`: the teammate's return tests. `test_pi_return.py` passes (144 of 144 simulated runs parked).
+- `KC_stm32_link.py`, `KC_range_calib.py` and `test_bridge.py` were already the same as the robot's.
+
+One `test_bridge.py` test fails: it still expects a RuntimeError on a low-confidence arrow, which the bridge no longer raises. On the Pi, the bridge and the Pi return were last edited partway through the evening's runs (19 run logs are newer), so the earliest of the 24 runs may have used an earlier edit.
 
 The two runs that did not park:
 - O1 at 114 cm: the first O2 echo after the O1 part read 151.8 cm (the far wall; O2 was ~88 cm away). The 100 cm approach at speed 100 stopped about 4 cm short of O2 on the close-echo guard, then the STM32 reset.

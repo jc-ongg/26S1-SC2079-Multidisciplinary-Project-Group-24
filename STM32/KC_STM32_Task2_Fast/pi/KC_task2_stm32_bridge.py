@@ -14,7 +14,17 @@ import subprocess
 import threading
 import time
 
-STAGES = {'o1': 1, 'o2-prepare': 2, 'o2-bypass': 3, 'full': 0, 'servo-test': 4}
+STAGES = {'o1': 1, 'o2-prepare': 2, 'o2-bypass': 3, 'full': 0, 'servo-test': 4,
+          'full-pi-return': 3}  # native O1+O2, then the Pi drives the two-step return (KC_task2_pi_return.py)
+
+
+RUN_T0 = [None]   # monotonic time of the acknowledged START: every printed line carries the run time
+
+
+def tsay(text, flush=True):
+    """Print with the run time so far, e.g. '[ 12.34 s] !KC_T2/STATE/...'."""
+    t0 = RUN_T0[0]
+    print(f'[{time.monotonic() - t0:6.2f} s] {text}' if t0 is not None else text, flush=True)
 
 
 def frame(command_id, component, command, first, second):
@@ -129,6 +139,14 @@ def query_filtered(url, image, timeout=4):
     return (best['class'], float(best['confidence'])) if best else (None, 0.0)
 
 
+# The STM32 no longer guesses an arrow (KC_NO_STALL): never report FAIL. At a
+# stop, after four frames under 50%, two agreeing frames >= 35% (none for the
+# other side) are the model's answer; otherwise keep capturing, and keep
+# retrying an unreachable server (fix --laptop-ip; the robot waits meanwhile).
+VISION_KEEP_TRYING = True
+WEAK_CONFIDENCE = 0.35
+
+
 def capture_arrow(vision, folder, obstacle, cancelled, stationary=None, camera=None, query=None):
     """Keep classifying frames while the robot drives; up to four more at a stop.
 
@@ -147,26 +165,36 @@ def capture_arrow(vision, folder, obstacle, cancelled, stationary=None, camera=N
     stopped_attempts = attempt = 0
     stopped_deadline = None
     votes = {'left': 0, 'right': 0}
+    weak = {'left': 0, 'right': 0}         # stationary frames >= WEAK_CONFIDENCE
     while not cancelled.is_set():
         stopped = stationary.is_set()
         if stopped:
             if stopped_deadline is None:
                 stopped_deadline = time.monotonic() + 20
             if stopped_attempts >= 4 or time.monotonic() >= stopped_deadline:
-                raise RuntimeError('No arrow met 50% confidence after stationary retries')
+                if not VISION_KEEP_TRYING:
+                    raise RuntimeError('No arrow met 50% confidence after stationary retries')
+                for s in ('left', 'right'):
+                    other = 'right' if s == 'left' else 'left'
+                    if weak[s] >= 2 and not weak[other]:
+                        tsay(f'[VISION] O{obstacle}: {s} from {weak[s]} stationary frames >= {WEAK_CONFIDENCE:.0%}', flush=True)
+                        return s
             stopped_attempts += 1
         image = folder / f'o{obstacle}_{attempt}.jpg'
         attempt += 1
         try:
             camera.capture(image)
             side, confidence = query(url, image) if query else vision._query('image-api', url, image)
-            print(f'[VISION] O{obstacle} {"stationary" if stopped else "moving"}: '
+            tsay(f'[VISION] O{obstacle} {"stationary" if stopped else "moving"}: '
                   f'{side}, confidence={confidence:.3f}, image={image}', flush=True)
             if cancelled.is_set():
                 break
             good = side in ('left', 'right') and math.isfinite(confidence) and confidence >= 0.50
             if good and (stopped or confidence >= 0.75):
                 return side
+            if (stopped and side in ('left', 'right') and math.isfinite(confidence)
+                    and confidence >= WEAK_CONFIDENCE):
+                weak[side] += 1
             if good:
                 other = 'right' if side == 'left' else 'left'
                 if votes[other]:
@@ -175,9 +203,73 @@ def capture_arrow(vision, folder, obstacle, cancelled, stationary=None, camera=N
                 if votes[side] >= 2:
                     return side
         except Exception as exc:
-            print(f'[VISION RETRY] O{obstacle}: {exc}', flush=True)
+            tsay(f'[VISION RETRY] O{obstacle}: {exc}  (robot waits; check --laptop-ip and the server)')
             time.sleep(0.1)
     raise RuntimeError('Capture cancelled')
+
+
+class BridgeIO:
+    """Plain motor commands after a native run, for KC_task2_pi_return."""
+
+    def __init__(self, send, incoming, log):
+        self.send, self.incoming, self.logf = send, incoming, log
+
+    @staticmethod
+    def parse(item):
+        p = item.rstrip(';').split('/')
+        try:
+            return {'left': float(p[1]), 'right': float(p[2]), 'us': float(p[3]),
+                    'us_valid': int(p[4]) == 1, 'heading': float(p[5])}
+        except (IndexError, ValueError):
+            return None
+
+    def _next(self, timeout):
+        item = self.incoming.get(timeout=timeout)
+        if isinstance(item, Exception):
+            raise item
+        self.logf.write(json.dumps({'time': time.time(), 'frame': item}) + '\n'); self.logf.flush()
+        if not item.startswith('!SENSOR/'):
+            tsay(item)
+        return item
+
+    def move(self, command, speed, value, on_sensor=None, timeout=20.0):
+        ident = self.send('MOTOR', command, int(speed), int(value))
+        tsay(f'[RETURN] {command} speed {speed} {value}')
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                item = self._next(0.2)
+            except queue.Empty:
+                continue
+            if item.startswith('!SENSOR/'):
+                if on_sensor is not None:
+                    frame = self.parse(item)
+                    if frame:
+                        on_sensor(frame)
+            elif item == f'!{ident}/DONE;':
+                return
+            elif item.startswith(f'!{ident}/'):
+                raise RuntimeError(f'{command} {value} failed: {item}')
+        raise RuntimeError(f'{command} {value} timed out')
+
+    def sensors(self, n, timeout=3.0):
+        frames, deadline = [], time.monotonic() + timeout
+        while len(frames) < n and time.monotonic() < deadline:
+            try:
+                item = self._next(0.2)
+            except queue.Empty:
+                continue
+            if item.startswith('!SENSOR/'):
+                frame = self.parse(item)
+                if frame:
+                    frames.append(frame)
+        if len(frames) < n:
+            raise RuntimeError('no SENSOR telemetry from the STM32')
+        return frames
+
+    def log(self, text):
+        tsay(text)
+        self.logf.write(json.dumps({'time': time.time(), 'frame': text}) + '\n'); self.logf.flush()
 
 
 def main(argv=None):
@@ -208,6 +300,7 @@ def main(argv=None):
     requested = set()
     stationary_requests = {}
     started = False
+    timing = {'t0': None, 'reported': False}   # run timer: START acknowledged -> end
     serial_link = None
     try:
         if args.stage != 'servo-test':
@@ -277,7 +370,19 @@ def main(argv=None):
                 break
         if not acknowledged:
             raise RuntimeError('STM32 did not confirm START; stopping instead of sending heartbeats')
+        timing['t0'] = time.monotonic()
+        RUN_T0[0] = timing['t0']
+
+        def report(log, label, native_s=None):
+            total = time.monotonic() - timing['t0']
+            parts = f'{label}: {total:.1f} s'
+            if native_s is not None:
+                parts += f' (native O1+O2 {native_s:.1f} s, Pi return {total - native_s:.1f} s)'
+            print(f'\n===== RUN TIME {parts} =====', flush=True)
+            log.write(json.dumps({'time': time.time(), 'frame': f'RUN_TIME {parts}'}) + '\n'); log.flush()
+            timing['reported'] = True
         next_ping=0
+        native_frames=[]
         finish_deadline=time.monotonic()+185
         with log_path.open('w') as log:
             while time.monotonic()<finish_deadline:
@@ -287,7 +392,7 @@ def main(argv=None):
                     obstacle,token,future=capture
                     try: side=future.result()
                     except Exception as exc:
-                        print(f'[VISION ERROR] {exc}',flush=True)
+                        tsay(f'[VISION ERROR] {exc}')
                         send('T2','FAIL',obstacle,token)
                     else: send('T2',side.upper(),obstacle,token)
                     capture=None
@@ -296,7 +401,7 @@ def main(argv=None):
                 if isinstance(item,Exception):raise item
                 log.write(json.dumps({'time':time.time(),'frame':item})+'\n');log.flush()
                 if not item.startswith('!SENSOR/'):
-                    print(item,flush=True)
+                    tsay(item)
                 if item.startswith(('!KC_T2/CAPTURE/', '!KC_T2/CAPTURE_EARLY/')):
                     parts=item.rstrip(';').split('/')
                     obstacle,token=int(parts[2]),int(parts[3])
@@ -310,16 +415,35 @@ def main(argv=None):
                         requested.add(key)
                         future=executor.submit(capture_arrow,vision,capture_root/f'O{obstacle}',obstacle,cancelled,stationary,camera,query_filtered)
                         capture=(obstacle,token,future)
+                if item.startswith('!KC_T2/'):native_frames.append(item)
+                if item==f'!{run_id}/DONE;' and args.stage=='full-pi-return':
+                    from KC_task2_pi_return import PiReturn, facts_from_frames
+                    facts=facts_from_frames(native_frames)
+                    tsay(f'[RETURN] native O1+O2 done; facts {facts}')
+                    native_s=time.monotonic()-timing['t0']
+                    tsay(f'[RETURN] native O1+O2 took {native_s:.1f} s')
+                    try:
+                        PiReturn(BridgeIO(send,incoming,log),facts).run()
+                    except Exception:
+                        report(log,'stopped during the Pi return after',native_s)
+                        raise
+                    print(f'Native O1+O2 and Pi return completed. Log: {log_path}',flush=True)
+                    report(log,'START to parked',native_s)
+                    return 0
                 if item==f'!{run_id}/DONE;':
                     print(f'Native stage {args.stage} completed. Log: {log_path}',flush=True)
+                    report(log,f'START to end of stage {args.stage}')
                     return 0
                 if item.startswith(f'!{run_id}/ERROR/') or item==f'!{run_id}/ABORTED;':
+                    report(log,f'stopped ({item.strip(";")}) after')
                     raise RuntimeError(f'STM32 stopped: {item}; log: {log_path}')
         raise RuntimeError('Native run time limit reached')
     except KeyboardInterrupt:
         print('STOP requested.',flush=True)
         return 130
     finally:
+        if timing['t0'] is not None and not timing['reported']:
+            print(f"\n===== RUN TIME: stopped after {time.monotonic() - timing['t0']:.1f} s =====", flush=True)
         cancelled.set()
         # A valid STOP is sent even if capture or serial reading fails.
         if serial_link is not None:
