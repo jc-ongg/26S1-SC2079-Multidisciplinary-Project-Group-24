@@ -23,14 +23,32 @@ def frame(command_id, component, command, first, second):
 
 class Camera:
     """Keeps the camera open. rpicam-still restarts the camera for every photo
-    (over a second each); a running Picamera2 returns a frame in ~50 ms."""
+    (over a second each); a running Picamera2 returns a frame in ~50 ms.
 
-    def __init__(self):
+    full_sensor=False keeps the 640x480 sensor mode, which only sees the centre
+    1280x960 of the IMX219 (about +/-13 deg). full_sensor=True reads the whole
+    sensor (1640x1232 binned) and set_view() moves a window of that same size
+    and zoom left or right, so side views keep the straight-on calibration.
+    """
+
+    SENSOR = (3280, 2464)
+    WINDOW = (1280, 960)
+
+    def __init__(self, full_sensor=False):
         self.cam = None
+        self.full_sensor = False
         try:
             from picamera2 import Picamera2
             cam = Picamera2()
-            cam.configure(cam.create_still_configuration(main={'size': (640, 480)}, buffer_count=2))
+            config = None
+            if full_sensor:
+                try:
+                    config = cam.create_still_configuration(main={'size': (640, 480)}, buffer_count=2,
+                                                            sensor={'output_size': (1640, 1232)})
+                    self.full_sensor = True
+                except Exception as exc:
+                    print(f'[CAMERA] full-sensor mode unavailable ({exc}); using the centre-only mode', flush=True)
+            cam.configure(config or cam.create_still_configuration(main={'size': (640, 480)}, buffer_count=2))
             try:
                 # Prefer short exposures: frames taken at 60-70 cm/s came back blank.
                 from libcamera import controls
@@ -40,9 +58,23 @@ class Camera:
             cam.start()
             time.sleep(0.5)  # auto exposure settles once, before the run
             self.cam = cam
-            print('[CAMERA] Picamera2 running (continuous capture)', flush=True)
+            if self.full_sensor:
+                self.set_view(0.0)
+            print(f'[CAMERA] Picamera2 running ({"full sensor" if self.full_sensor else "centre-only"} mode)', flush=True)
         except Exception as exc:
             print(f'[CAMERA] Picamera2 unavailable ({exc}); using rpicam-still', flush=True)
+
+    def set_view(self, shift):
+        """shift -1 = window at the far left of the sensor, 0 = centre, +1 = far right
+        (about 20 deg off centre). Takes a few frames to apply."""
+        if self.cam is None or not self.full_sensor:
+            return False
+        shift = max(-1.0, min(1.0, shift))
+        x = int((self.SENSOR[0] - self.WINDOW[0]) / 2 * (1 + shift))
+        y = (self.SENSOR[1] - self.WINDOW[1]) // 2
+        self.cam.set_controls({'ScalerCrop': (x, y, self.WINDOW[0], self.WINDOW[1])})
+        time.sleep(0.15)
+        return True
 
     def capture(self, path):
         if self.cam is not None:
@@ -61,7 +93,43 @@ class Camera:
                 pass
 
 
-def capture_arrow(vision, folder, obstacle, cancelled, stationary=None, camera=None):
+def pick_arrow(detections):
+    """Best real-looking arrow box, or None.
+
+    Arrow cards come out roughly square. The model also fires on poster icons
+    (long thin boxes, e.g. 39x14) and on slivers cut off at the picture edge;
+    a calibration photo with no arrow in view came back RIGHT 0.58 that way.
+    """
+    good = []
+    for d in detections:
+        if d.get('class') not in ('left', 'right'):
+            continue
+        x0, y0, x1, y1 = d['xyxy']
+        w, h = x1 - x0, y1 - y0
+        # A card 25 cm from the bumper is about 200 px wide; bigger boxes are not cards.
+        if w < 18 or h < 18 or w > 260 or not 0.5 <= w / h <= 1.6:
+            continue
+        if (x0 <= 3 or x1 >= 637) and w < 90:  # small box cut off at the edge
+            continue
+        good.append(d)
+    return max(good, key=lambda d: d['confidence'], default=None)
+
+
+def query_filtered(url, image, timeout=4):
+    """Ask the laptop API, then choose the arrow ourselves with pick_arrow."""
+    import requests
+    with open(image, 'rb') as f:
+        response = requests.post(url, files={'image': (image.name, f, 'image/jpeg')}, timeout=timeout)
+    response.raise_for_status()
+    data = response.json()
+    if 'detections' not in data:  # older API without the detection list
+        side = str(data.get('image_id', '')).strip().lower()
+        return (side, float(data.get('conf', 0.0))) if side in ('left', 'right') else (None, 0.0)
+    best = pick_arrow(data['detections'])
+    return (best['class'], float(best['confidence'])) if best else (None, 0.0)
+
+
+def capture_arrow(vision, folder, obstacle, cancelled, stationary=None, camera=None, query=None):
     """Keep classifying frames while the robot drives; up to four more at a stop.
 
     While moving, accept one frame >= 75%, or two frames >= 50% for the same side
@@ -91,7 +159,7 @@ def capture_arrow(vision, folder, obstacle, cancelled, stationary=None, camera=N
         attempt += 1
         try:
             camera.capture(image)
-            side, confidence = vision._query('image-api', url, image)
+            side, confidence = query(url, image) if query else vision._query('image-api', url, image)
             print(f'[VISION] O{obstacle} {"stationary" if stopped else "moving"}: '
                   f'{side}, confidence={confidence:.3f}, image={image}', flush=True)
             if cancelled.is_set():
@@ -240,7 +308,7 @@ def main(argv=None):
                     if key not in requested:
                         if capture is not None:raise RuntimeError('Overlapping camera requests')
                         requested.add(key)
-                        future=executor.submit(capture_arrow,vision,capture_root/f'O{obstacle}',obstacle,cancelled,stationary,camera)
+                        future=executor.submit(capture_arrow,vision,capture_root/f'O{obstacle}',obstacle,cancelled,stationary,camera,query_filtered)
                         capture=(obstacle,token,future)
                 if item==f'!{run_id}/DONE;':
                     print(f'Native stage {args.stage} completed. Log: {log_path}',flush=True)

@@ -12,6 +12,15 @@
 #ifndef KC_FAST_O1
 #define KC_FAST_O1 1
 #endif
+#ifndef KC_O2_FACE_SPEED
+#define KC_O2_FACE_SPEED 16  /* speed while following O2's faces with the side IR */
+#endif
+#ifndef KC_ENTRY_HEADING_TOL
+#define KC_ENTRY_HEADING_TOL 3.0f  /* deg, car-park entry and return-lane moves (was 2) */
+#endif
+#ifndef KC_IR_PERIOD_MS
+#define KC_IR_PERIOD_MS 100  /* side IR update period (main.c irSensor task) */
+#endif
 
 enum KcMove { KCT_FWD, KCT_REV, KCT_LEFT, KCT_RIGHT, KCT_REV_LEFT };
 enum KcPhase { KCT_IDLE, KCT_O1_RANGE, KCT_O1_VISION, KCT_O1_PLAN,
@@ -52,8 +61,8 @@ typedef struct {
  uint8_t park_pairs, park_recheck_used, park_rechecking, park_segments;
  float park_l,park_r,park_forward_total;
  uint8_t fmode,fshort,framp_done;
- uint32_t fstart,fok;
- float fk,flast,fpred,framp_lr,framp_rl,fsw;
+ uint32_t fstart,fok,fat;
+ float fk,flast,fpred,framp_lr,framp_rl,fsw,ftarget,fhead,fkscale;
 } KcTask2;
 
 static float kc_min(float a,float b){return a<b?a:b;}
@@ -128,9 +137,9 @@ static void kc_capture(KcTask2 *t,unsigned obstacle,uint32_t now){
  kc_enter(t,obstacle==1?KCT_O1_VISION:KCT_O2_VISION,now);
  kc_event(t,"CAPTURE",(float)obstacle,(float)t->token);
 }
-#if KC_FAST_O1
+/* Always included: the platform adapter uses its constants. KC_FAST_O1 only
+ * decides whether the rolling swerve runs (1) or the stop-and-turn O1 (0). */
 #include "kc_fast_o1.h"
-#endif
 static int kc_start(KcTask2 *t,KcT2Hooks hooks,const KcT2Input *i,uint32_t token,unsigned cap){
  if(cap>(KC_FAST_O1?4u:3u) || !i->gyro_ready || !isfinite(i->heading) || !isfinite(i->gyro) || fabsf(i->gyro)>3 || kc_elapsed(i->now,i->imu_at,250))return 0;
  memset(t,0,sizeof(*t));t->io=hooks;t->active=1;t->cap=(uint8_t)cap;
@@ -275,7 +284,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   }
   if(i->motion_status==2){kc_fail(t,"ERROR_MOTION",i->now);return;}
   if(kc_elapsed(i->now,t->entered,20000)){kc_fail(t,"ERROR_MOTION_TIMEOUT",i->now);return;}
-  if((t->move==KCT_FWD || t->move==KCT_REV) && (t->after==KCT_CENTRE || t->after==KCT_ENTRY_ALIGN || t->after==KCT_RETURN_TRIM || t->after==KCT_RETURN_TRIM_ALIGN) && fabsf(actual-t->h)>2){kc_event(t,"ENTRY_HEADING",actual,t->h);kc_fail(t,"ERROR_ENTRY_HEADING",i->now);return;}
+  if((t->move==KCT_FWD || t->move==KCT_REV) && (t->after==KCT_CENTRE || t->after==KCT_ENTRY_ALIGN || t->after==KCT_RETURN_TRIM || t->after==KCT_RETURN_TRIM_ALIGN) && fabsf(actual-t->h)>KC_ENTRY_HEADING_TOL){kc_event(t,"ENTRY_HEADING",actual,t->h);kc_fail(t,"ERROR_ENTRY_HEADING",i->now);return;}
   if((t->after==KCT_CENTRE || t->after==KCT_RETURN_TRIM) && t->move==KCT_FWD && i->progress>t->amount+2){kc_fail(t,"ERROR_ENTRY_TRAVEL",i->now);return;}
   if(t->move==KCT_FWD || t->move==KCT_REV){
    if(fabsf(actual-t->h)>5){kc_fail(t,"ERROR_STRAIGHT_HEADING",i->now);return;}
@@ -294,7 +303,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    float d=i->progress;
    if(t->after==KCT_PARK && t->move==KCT_FWD)t->park_forward_total+=d;
    kc_pose_finish(t,d);
-   if(fabsf(actual-t->h)>((t->after==KCT_CENTRE || t->after==KCT_ENTRY_ALIGN || t->after==KCT_RETURN_TRIM || t->after==KCT_RETURN_TRIM_ALIGN)?2:5)){kc_fail(t,"ERROR_FINAL_HEADING",i->now);return;}
+   if(fabsf(actual-t->h)>((t->after==KCT_CENTRE || t->after==KCT_ENTRY_ALIGN || t->after==KCT_RETURN_TRIM || t->after==KCT_RETURN_TRIM_ALIGN)?KC_ENTRY_HEADING_TOL:5)){kc_event(t,"FINAL_HEADING",actual,t->h);kc_fail(t,"ERROR_FINAL_HEADING",i->now);return;}
    if(t->guard_us){t->expected_range=t->range+(t->move==KCT_REV?d:-d);t->guard_us=0;}
    kc_enter(t,t->after,i->now);
   }
@@ -324,7 +333,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   t->ir_seen=i->ir_seq;
   float v=kc_inner(t,i);
   if(isfinite(v) && v>=10 && v<=30)t->count++;else t->count=0;
-  if(t->count>=2){t->acquired=1;t->edge_after=KCT_O2_CORNER;t->edge_started=i->now;kc_begin_move(t,KCT_FWD,16,100,KCT_IR_EDGE,i->now);}
+  if(t->count>=2){t->acquired=1;t->edge_after=KCT_O2_CORNER;t->edge_started=i->now;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_IR_EDGE,i->now);}
   else if(kc_elapsed(i->now,t->entered,400)){
    t->edge_after=KCT_IR_MEASURE;kc_begin_move(t,KCT_REV,16,35,KCT_IR_MEASURE,i->now);
   }break;}
@@ -340,11 +349,11 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    }else{if(v>30)t->count=0;if(i->motion_status==1){kc_brake(t);kc_enter(t,KCT_IR_MEASURE,i->now);}}
   }else{
    if(isfinite(v) && v>=10 && v<=30)t->count++;else t->count=0;
-   if(t->count>=2){t->acquired=1;t->edge_after=KCT_O2_CORNER;t->edge_started=i->now;kc_begin_move(t,KCT_FWD,16,100,KCT_IR_EDGE,i->now);}
+   if(t->count>=2){t->acquired=1;t->edge_after=KCT_O2_CORNER;t->edge_started=i->now;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_IR_EDGE,i->now);}
    else if(kc_elapsed(i->now,t->entered,2000))kc_fail(t,"ERROR_IR_ACQUIRE",i->now);
   }break;}
  case KCT_IR_EDGE:case KCT_O2_BACK_EDGE:{
-  if(!t->move_live){t->acquired=0;t->ir_retry=0;t->edge_started=i->now;kc_begin_move(t,KCT_FWD,16,100,KCT_O2_BACK_EDGE,i->now);break;}
+  if(!t->move_live){t->acquired=0;t->ir_retry=0;t->edge_started=i->now;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_O2_BACK_EDGE,i->now);break;}
   if(kc_elapsed(i->now,i->ir_at,300) || fabsf(actual-t->h)>5 || i->motion_status==2){kc_fail(t,"ERROR_EDGE_GUARD",i->now);break;}
   if(kc_elapsed(i->now,t->edge_started,30000)){kc_fail(t,"ERROR_EDGE_TIMEOUT",i->now);break;}
   if(i->ir_seq==t->ir_seen)break;
@@ -405,7 +414,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    t->metric[t->count%2]=v;t->count++;
    if(t->count>=2 && fabsf(t->metric[0]-t->metric[1])<=3){
     t->back_gap=(t->metric[0]+t->metric[1])/2;t->acquired=1;t->ir_retry=0;t->edge_started=i->now;
-    kc_begin_move(t,KCT_FWD,16,100,KCT_O2_BACK_EDGE,i->now);
+    kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_O2_BACK_EDGE,i->now);
    }
   }else t->count=0;
   break;}
@@ -427,12 +436,30 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   t->acquired=0;t->gap=NAN;t->count=0;t->index=0;
   kc_begin_move(t,KCT_FWD,distance<=10?12:100,(unsigned)ceilf(kc_max(2,distance)),KCT_O1_EDGE,i->now);break;}
  case KCT_RETURN_CLEAR:{
-  if(fabsf(actual-t->h)>2){kc_fail(t,"ERROR_ENTRY_HEADING",i->now);break;}
+  if(fabsf(actual-t->h)>KC_ENTRY_HEADING_TOL){kc_fail(t,"ERROR_ENTRY_HEADING",i->now);break;}
   if(fabsf(t->x)>45){
-   if(!kce_trim_choose(t->x,t->y,t->o1_front,t->o2_front,&t->centre_diagonal,&t->entry_y)){
+   float trim_target=kce_trim_target(t->x);
+   int trimmed=kce_trim_choose(t->x,t->y,t->o1_front,t->o2_front,&t->centre_diagonal,&t->entry_y);
+   if(!trimmed){
+    /* Full trim does not fit between the obstacles (short O1-O2 gap). A
+     * smaller one, to ~40 cm, keeps O1 within side-IR range on the way home. */
+    trim_target=kce_partial_target(t->x);
+    trimmed=kce_trim_choose_to(t->x,trim_target,t->y,t->o1_front,t->o2_front,&t->centre_diagonal,&t->entry_y);
+    if(trimmed)kc_event(t,"RETURN_LANE_PARTIAL",trim_target,t->centre_diagonal);
+   }
+   if(!trimmed){
+    /* No inward trim fits between the obstacles (short O1-O2 gap with a wide
+     * O2: run 443289900, lane -52.6). If the normal parking entry already
+     * passes the same footprint checks from this lane, keep the lane;
+     * REAR_CLEAR rechecks it beside O1 with the IR-corrected pose. */
+    float direct_d,direct_y;
+    if(kce_choose(t->x,t->y,t->y,t->o1_front,t->o2_front,&direct_d,&direct_y)){
+     kc_event(t,"RETURN_LANE_DIRECT",direct_y,direct_d);
+     t->return_prepared=1;kc_enter(t,KCT_RETURN,i->now);break;
+    }
     kc_fail(t,"ERROR_RETURN_LANE_PATH",i->now);break;
    }
-   t->return_target=kce_trim_target(t->x);
+   t->return_target=trim_target;
    kc_event(t,"RETURN_LANE_PLAN",t->entry_y,t->centre_diagonal);
    float d=t->y-t->entry_y;
    if(fabsf(d)>=2)kc_move_to(t,d>0?KCT_FWD:KCT_REV,12,(unsigned)lroundf(fabsf(d)),KCT_RETURN_TRIM_ALIGN,i->now);
@@ -440,7 +467,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   }else{t->return_prepared=1;kc_enter(t,KCT_RETURN,i->now);}
   break;}
  case KCT_RETURN_TRIM_ALIGN:
-  if(fabsf(actual-t->h)>2 || !kce_template_to(t->x,t->return_target,t->centre_diagonal) ||
+  if(fabsf(actual-t->h)>KC_ENTRY_HEADING_TOL || !kce_template_to(t->x,t->return_target,t->centre_diagonal) ||
       !kce_clear(t->y,t->o1_front,t->o2_front)){
    kc_fail(t,"ERROR_RETURN_LANE_RECHECK",i->now);break;
   }
@@ -484,7 +511,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    * sweep fits first. A wide return lane needs an earlier start, not a longer
    * diagonal from the old fixed rear-clear pose. Reverse only on the lane
    * already traversed; no unmeasured lateral reverse or new turn type. */
-  if(fabsf(actual-t->h)>2 || !kce_choose(t->x,t->y,t->return_y,t->o1_front,t->o2_front,
+  if(fabsf(actual-t->h)>KC_ENTRY_HEADING_TOL || !kce_choose(t->x,t->y,t->return_y,t->o1_front,t->o2_front,
       &t->centre_diagonal,&t->entry_y)){
    kc_fail(t,"ERROR_ENTRY_NO_PATH",i->now);break;
   }
@@ -497,7 +524,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   break;}
  case KCT_ENTRY_ALIGN:
   /* Recheck at ACTUAL encoder endpoint, including completed braking. */
-  if(fabsf(actual-t->h)>2 || !kce_template(t->x,t->centre_diagonal) ||
+  if(fabsf(actual-t->h)>KC_ENTRY_HEADING_TOL || !kce_template(t->x,t->centre_diagonal) ||
       !kce_clear(t->y,t->o1_front,t->o2_front)){
    kc_fail(t,"ERROR_ENTRY_RECHECK",i->now);break;
   }

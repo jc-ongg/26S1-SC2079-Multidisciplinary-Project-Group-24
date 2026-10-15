@@ -325,6 +325,14 @@ int main(void){
  assert(diagonal<25);
  /* A path with less than5cm feasible staging interval is rejected. */
  assert(!kce_trim_choose(-42,124.67f,73.27f,143.17f,&diagonal,&entry));
+ /* Run 443289900 (O1 60 cm, O1-O2 60 cm, wide O2): no trim fits, but the
+  * direct entry from the -52.6 lane passes; RETURN_CLEAR now goes direct. */
+ assert(!kce_trim_choose(-58.15f,124.47f,72.28f,143.71f,&diagonal,&entry));
+ assert(kce_trim_choose_to(-58.15f,kce_partial_target(-58.15f),124.47f,72.28f,143.71f,&diagonal,&entry));
+ /* Run 700394561 (O2 LEFT): home lane +67.6 needs a 74 cm entry diagonal. */
+ assert(kce_choose(67.62f,124.55f,124.55f,70.36f,144.60f,&diagonal,&entry));
+ assert(!kce_trim_choose(-52.58f,123.60f,71.59f,143.69f,&diagonal,&entry));
+ assert(kce_choose(-52.58f,123.60f,123.60f,71.59f,143.69f,&diagonal,&entry));
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
  t.phase=KCT_RETURN;t.x=56.11f;t.y=140.41f;t.o1_front=73.27f;t.o2_front=143.17f;t.h=180;i.heading=180;
  advance(&t,&i);assert(t.phase==KCT_MOVE&&t.after==KCT_RETURN_CLEAR&&t.speed==22&&t.amount==16);

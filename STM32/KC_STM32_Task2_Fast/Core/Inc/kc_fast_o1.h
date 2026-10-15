@@ -15,7 +15,9 @@
 #define KCF_R_RIGHT     30.5f  /* rolling, servo test (standstill fit was 28.8) */
 #define KCF_AXLE_CENTRE  8.2f  /* rear axle behind robot centre */
 #define KCF_AXLE_FRONT  19.7f  /* rear axle to front bumper (US) */
+#ifndef KCF_Y_PEAK
 #define KCF_Y_PEAK      28.0f  /* rear-axle lane offset beside O1 */
+#endif
 /* Front-to-O1 distance when steering starts. Right lock is the wider turn, so
  * a RIGHT swerve moves sideways more slowly; start it earlier. */
 #ifndef KCF_D_TRIG_L
@@ -24,7 +26,14 @@
 #ifndef KCF_D_TRIG_R
 #define KCF_D_TRIG_R    35.0f  /* O1 runs: RIGHT came close to the near corner at 30 */
 #endif
+/* The reverse finish turns in beside O1, so the lane must be reached before
+ * O1's near face even with a slow servo: steer out earlier. */
+#ifndef KCF_RF_TRIG_EXTRA
+#define KCF_RF_TRIG_EXTRA 12.0f
+#endif
+#ifndef KCF_X_RET
 #define KCF_X_RET        3.0f  /* turn back once the rear axle is this far past O1's near face */
+#endif
 /* cm driven while the steering swings lock to lock, measured in the O1 runs
  * of 2026-10-14 at ~51 cm/s. Not symmetric: right->left is slower. The first
  * swing of every swerve is re-measured (F_RAMP) and both values are scaled. */
@@ -32,12 +41,91 @@
 #define KCF_RAMP_RL     30.4f  /* right lock -> left lock */
 #define KCF_RAMP_MAX    45.0f
 #define KCF_PWM_FAST  4500u
-#define KCF_PWM_TURN  3550u    /* speed 50, the speed the radii were measured at */
+#ifndef KCF_PWM_TURN
+#define KCF_PWM_TURN  3550u    /* swerve PWM; speed 50 = 3550 = ~58 cm/s straight */
+#endif
+/* Steering lag is time-based: ~0.445 s left->right, ~0.596 s right->left
+ * lock to lock (O1 runs at ~51 cm/s gave 22.7 / 30.4 cm). Scaled by speed. */
+#define KCF_T_LR 0.445f
+#define KCF_T_RL 0.596f
 #define KCF_SLOW_ZONE   30.0f  /* drop to turn PWM this far before the trigger */
 #define KCF_DECIDE      15.0f  /* still no arrow this far before the trigger: stop and wait */
 #define KCF_O2_GUARD    18.0f  /* brake if US sees something this close while turning back */
 
-enum { KCF_DRIVE_STRAIGHT, KCF_DRIVE_LEFT, KCF_DRIVE_RIGHT };
+/* Reverse finish (fits the 60 cm O1-O2 gap). After the lane beside O1:
+ * forward on the inward lock to KCF_RF_THETA, straight diagonal, brake,
+ * set the same lock at standstill, reverse on it back to heading 0. The
+ * turn-in point is chosen so the rear bumper ends KCF_RF_REAR past O1, and
+ * the diagonal ends where the reverse arc lands on the centre line. */
+#ifndef KCF_FINISH_REVERSE
+#define KCF_FINISH_REVERSE 1
+#endif
+/* Reverse lock radius from the reverse arcs' chords, robot 2026-10-15:
+ * right 30.2-30.8 (4 runs), left 23.4-23.6 (2 runs). Independent of the
+ * forward-turn radius measured in the same runs (scale 0.93-1.07), so that
+ * measurement is logged but not applied here. */
+#define KCF_RS_LEFT     23.5f
+#define KCF_RS_RIGHT    30.4f
+#define KCF_AXLE_REAR    3.3f  /* rear bumper behind rear axle */
+/* Per O1 arrow. A LEFT arrow turns in and reverses on the wider right lock,
+ * which reaches further toward O2. */
+#ifndef KCF_RF_THETA_L
+#define KCF_RF_THETA_L  64.0f  /* deg, inward heading of the diagonal (test_fast_o1.c sweep) */
+#endif
+#ifndef KCF_RF_THETA_R
+#define KCF_RF_THETA_R  63.0f
+#endif
+#ifndef KCF_RF_REAR_L
+#define KCF_RF_REAR_L    7.0f  /* rear bumper aims to end this far past O1's back face */
+#endif
+#ifndef KCF_RF_REAR_R
+#define KCF_RF_REAR_R   10.0f  /* RIGHT lands ~3 cm short of its aim in the sweep */
+#endif
+#define KCF_RF_THETA (sg>0?KCF_RF_THETA_L:KCF_RF_THETA_R)
+#define KCF_RF_REAR  (sg>0?KCF_RF_REAR_L:KCF_RF_REAR_R)
+#ifndef KCF_RF_DTHETA
+#define KCF_RF_DTHETA    6.0f  /* deg the inward angle may change to land on the target */
+#endif
+#ifndef KCF_RF_XS_MIN_L
+#define KCF_RF_XS_MIN_L -3.0f  /* earliest turn-in: rear axle past O1's near face */
+#endif
+#ifndef KCF_RF_XS_MIN_R
+#define KCF_RF_XS_MIN_R -3.0f  /* RIGHT arrow: inward turn on the tighter left lock */
+#endif
+#define KCF_RF_XS_MIN (sg>0?KCF_RF_XS_MIN_L:KCF_RF_XS_MIN_R)
+#ifndef KCF_RF_SLIDE_S
+#define KCF_RF_SLIDE_S  0.06f  /* short-brake slide = speed x this (s); corrected by the nudge */
+#endif
+/* Robot runs 2026-10-15 (3 x LEFT): from straight to the inward lock the car
+ * went ~7 cm further than the model before the heading came round. */
+#ifndef KCF_RF_TURNIN_DEAD
+#define KCF_RF_TURNIN_DEAD 12.0f  /* fitted in test_fast_o1.c to the robot's turn-in */
+#endif
+#ifndef KCF_RF_NUDGE_TOL
+#define KCF_RF_NUDGE_TOL 1.5f  /* cm along the diagonal before a correction move */
+#endif
+#ifndef KCF_PWM_NUDGE
+#define KCF_PWM_NUDGE  1600u
+#endif
+#ifndef KCF_PWM_REV
+#define KCF_PWM_REV    2500u
+#endif
+#ifndef KCF_RF_SERVO_MS
+#define KCF_RF_SERVO_MS 300u   /* centre to lock at standstill */
+#endif
+#ifndef KCF_RF_REV_LEAD
+#define KCF_RF_REV_LEAD  1.0f  /* deg, plus the brake slide at the current speed */
+#endif
+#ifndef KCF_PWM_REV_SLOW
+#define KCF_PWM_REV_SLOW 1600u /* last KCF_RF_REV_SLOW deg of the reverse */
+#endif
+#define KCF_RF_REV_SLOW 20.0f
+#define KCF_RF_DIAG_MAX 50.0f  /* cm; the sweep's diagonals are ~30-35 */
+#define KCF_RF_END_TOL   8.0f  /* cm off the centre line; the sweep ends within 2.4 */
+
+/* Every mode from KCF_DRIVE_BRAKE on is a short brake. */
+enum { KCF_DRIVE_STRAIGHT, KCF_DRIVE_LEFT, KCF_DRIVE_RIGHT, KCF_DRIVE_REV_LEFT, KCF_DRIVE_REV_RIGHT,
+       KCF_DRIVE_REV_STRAIGHT, KCF_DRIVE_BRAKE, KCF_DRIVE_BRAKE_LEFT, KCF_DRIVE_BRAKE_RIGHT };
 
 typedef struct { float x, y, h, k; } KcfSim;
 
@@ -65,6 +153,27 @@ static float kcf_land(KcfSim s,int side,float sg,float rlr,float rrl){
  for(;n<300 && sg*s.h<-kcf_lead(side,rlr,rrl);n++)kcf_sim_step(&s,kcf_lock_k(side),1.0f,rlr,rrl);
  for(;n<400 && fabsf(s.k)>1e-4f;n++)kcf_sim_step(&s,0.0f,1.0f,rlr,rrl);
  return s.y;
+}
+static float kcf_trig_extra(void){return KCF_FINISH_REVERSE?KCF_RF_TRIG_EXTRA:0.0f;}
+static float kcf_rs(int m){return m==KCF_DRIVE_LEFT?KCF_RS_LEFT:KCF_RS_RIGHT;}
+/* Reverse finish: run along heading h (diagonal plus brake slide) after which
+ * reversing on lock `opp` back to heading 0 lands on the centre line. */
+static float kcf_rf_run(float y,float h,float r,float sg){
+ return (sg*y+r*(1.0f-cosf(h)))/kc_max(0.2f,fabsf(sinf(h)));
+}
+/* Final rear-axle x of the reverse finish if the steering centres now;
+ * r = reverse lock radius. */
+static float kcf_rf_finish(KcfSim s,float sg,float rlr,float rrl,float r,float *heading){
+ for(int n=0;n<100 && fabsf(s.k)>1e-4f;n++)kcf_sim_step(&s,0.0f,1.0f,rlr,rrl);
+ if(heading)*heading=s.h;
+ return s.x+kc_max(0.0f,kcf_rf_run(s.y,s.h,r,sg))*cosf(s.h)-r*fabsf(sinf(s.h));
+}
+/* ... and if the inward turn starts now, nominal angle. */
+static float kcf_rf_xend(KcfSim s,int opp,float sg,float rlr,float rrl){
+ float hsw=kc_rad(KCF_RF_THETA)-kcf_lead(opp,rlr,rrl);
+ for(int n=0;n<(int)(2.0f*KCF_RF_TURNIN_DEAD);n++)kcf_sim_step(&s,s.k,0.5f,rlr,rrl);
+ for(int n=0;n<300 && sg*s.h>-hsw;n++)kcf_sim_step(&s,kcf_lock_k(opp),1.0f,rlr,rrl);
+ return kcf_rf_finish(s,sg,rlr,rrl,kcf_rs(opp),0);
 }
 /* Lane hold gains (tuned in test_fast_o1.c for the measured 22 cm steering lag). */
 #ifndef KCF_KY
@@ -96,11 +205,13 @@ static void kcf_track(KcTask2 *t,const KcT2Input *i,int lock){
 }
 static void kcf_begin(KcTask2 *t,const KcT2Input *i){
  t->fstart=i->now;t->flast=i->odist;t->fk=0;t->fmode=0;t->fshort=0;t->framp_lr=KCF_RAMP_LR;t->framp_rl=KCF_RAMP_RL;t->framp_done=0;
+ t->fkscale=1.0f;t->ftarget=0;t->fhead=0;t->fat=i->now;
  if(t->cap==4){kc_event(t,"F_SERVO_TEST",KCF_RAMP_LR,KCF_RAMP_RL);kc_enter(t,KCT_F_SERVO_TEST,i->now);return;}
  /* Ask for the arrow immediately; the Pi keeps trying while we drive. */
  t->waiting_arrow=1;t->arrow=0;t->vision_failed=0;
  kc_event(t,"CAPTURE_EARLY",1,(float)t->token);
- kc_event(t,"FAST_O1",KCF_D_TRIG_L,KCF_D_TRIG_R);
+ kc_event(t,"FAST_O1",KCF_D_TRIG_L+kcf_trig_extra(),KCF_D_TRIG_R+kcf_trig_extra());
+ if(KCF_FINISH_REVERSE)kc_event(t,"F_REVERSE_FINISH",2.0f,KCF_RF_TURNIN_DEAD);
  kc_enter(t,KCT_F_RANGE,i->now);
 }
 static void kcf_take_arrow(KcTask2 *t,float front){
@@ -115,7 +226,8 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
    if(kc_elapsed(i->now,t->entered,3500))kc_fail(t,"ERROR_US_UNRELIABLE",i->now);
    break;
   }
-  if(t->range<kc_max(KCF_D_TRIG_L,KCF_D_TRIG_R)+8.0f){kc_fail(t,"ERROR_START_TOO_CLOSE",i->now);break;}
+  /* The reverse finish may start its swerve from a standstill (the model is per cm). */
+  if(t->range<kc_max(KCF_D_TRIG_L,KCF_D_TRIG_R)+kcf_trig_extra()+(KCF_FINISH_REVERSE?2.0f:8.0f)){kc_fail(t,"ERROR_START_TOO_CLOSE",i->now);break;}
   t->o1_front=t->range+11.5f;t->us_anchor=t->range;t->o1_gap=t->range;
   kc_event(t,"F_O1_RANGE",t->range,t->o1_front);
   t->flast=i->odist;kc_enter(t,KCT_F_APPROACH,i->now);
@@ -123,7 +235,7 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
  case KCT_F_APPROACH:{
   kcf_track(t,i,KCF_DRIVE_STRAIGHT);
   kcf_take_arrow(t,front);
-  float trig=t->o1_front-(t->side1==2?KCF_D_TRIG_R:KCF_D_TRIG_L);
+  float trig=t->o1_front-(t->side1==2?KCF_D_TRIG_R:KCF_D_TRIG_L)-kcf_trig_extra();
   if(kc_elapsed(i->now,t->entered,15000)){kc_fail(t,"ERROR_F_APPROACH_TIMEOUT",i->now);break;}
   if(fabsf(actual)>10){kc_fail(t,"ERROR_STRAIGHT_HEADING",i->now);break;}
   /* Odometry says we are still >= trigger distance away; two close echoes mean it is wrong. */
@@ -153,21 +265,89 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
  case KCT_F_SWERVE:{
   float sg=t->side1==1?1.0f:-1.0f,x1=t->o1_front;
   int side=t->side1==1?KCF_DRIVE_LEFT:KCF_DRIVE_RIGHT,opp=t->side1==1?KCF_DRIVE_RIGHT:KCF_DRIVE_LEFT;
-  if(kc_elapsed(i->now,t->entered,8000)){kc_fail(t,"ERROR_F_SWERVE_TIMEOUT",i->now);break;}
+  if(kc_elapsed(i->now,t->entered,12000)){kc_fail(t,"ERROR_F_SWERVE_TIMEOUT",i->now);break;}
   int lock=(t->fmode==1 || t->fmode==5)?side:(t->fmode==2 || t->fmode==4)?opp:KCF_DRIVE_STRAIGHT;
-  kcf_track(t,i,lock);
+  if(t->fmode<=9)kcf_track(t,i,lock);
   KcfSim s={px,py,h,t->fk};
   int predict=i->odist-t->fpred>=0.5f;
   if(predict)t->fpred=i->odist;
   uint8_t before=t->fmode;
+  /* Modes 10 and 13 wait for the brake: fok = when the wheels stopped. */
+  int still=fabsf(i->speed)<1.5f;
+  if(t->fmode==10 || t->fmode==13){if(!still)t->fok=0;else if(!t->fok)t->fok=i->now;}
   switch(t->fmode){
   case 1:if(predict && sg*kcf_peak(s,opp,sg,t->framp_lr,t->framp_rl)>=KCF_Y_PEAK){t->fmode=2;t->fsw=i->odist;}break;
   case 2:if(sg*h<=kcf_lead(opp,t->framp_lr,t->framp_rl))t->fmode=3;break;
-  case 3:if(px>=x1+KCF_X_RET)t->fmode=4;break;
-  case 4:if(predict && sg*h<0 && sg*kcf_land(s,side,sg,t->framp_lr,t->framp_rl)<=0)t->fmode=5;break;
+  case 3:
+   if(KCF_FINISH_REVERSE){
+    /* The lane hold is steering: start the prediction from the measured
+     * path curvature, not the model's straight-ahead. */
+    KcfSim m=s;
+    if(i->speed>15.0f)m.k=kc_rad(i->gyro)/i->speed;
+    float target=x1+10.0f+KCF_AXLE_REAR+KCF_RF_REAR,xend=predict?kcf_rf_xend(m,opp,sg,t->framp_lr,t->framp_rl):0.0f;
+    if(predict && px>=x1+KCF_RF_XS_MIN && xend>=target){t->fmode=4;t->ftarget=target;t->fkscale=1.0f;kc_event(t,"F_RF_XEND",xend,target);}
+   }else if(px>=x1+KCF_X_RET)t->fmode=4;
+   break;
+  case 4:
+   if(KCF_FINISH_REVERSE){
+    /* Straighten when the predicted end reaches the target, within
+     * KCF_RF_THETA +- KCF_RF_DTHETA: absorbs radius and servo errors. */
+    float lead=kcf_lead(opp,t->framp_lr,t->framp_rl),a=-sg*h,xend=NAN,hd=h-sg*lead;
+    /* Lock radius on this floor, this run: compare the gyro's path
+     * curvature with the model once the steering has reached lock. */
+    float kl=kcf_lock_k(opp);
+    if(fabsf(t->fk-kl)<0.03f*fabsf(kl) && i->speed>15.0f && fabsf(i->gyro)>5.0f){
+     float sc=kc_max(0.85f,kc_min(1.2f,fabsf(kl)*i->speed/fabsf(kc_rad(i->gyro))));
+     t->fkscale+=0.05f*(sc-t->fkscale);
+    }
+    if(predict && a>=kc_rad(KCF_RF_THETA-KCF_RF_DTHETA)-lead)
+     xend=kcf_rf_finish(s,sg,t->framp_lr,t->framp_rl,kcf_rs(opp),&hd);
+    if(a>=kc_rad(KCF_RF_THETA+KCF_RF_DTHETA)-lead || xend<=t->ftarget){
+     /* The diagonal holds the heading the model says the turn settles at. */
+     t->fmode=9;t->fhead=hd*57.29578f;t->fsw=i->odist;t->corrections=0;
+     kc_event(t,"F_RF_TURN",xend,t->fhead);kc_event(t,"F_RF_RADIUS",t->fkscale,kcf_rs(opp));
+    }
+   }
+   else if(predict && sg*h<0 && sg*kcf_land(s,side,sg,t->framp_lr,t->framp_rl)<=0)t->fmode=5;
+   break;
   case 5:if(sg*h>=-kcf_lead(side,t->framp_lr,t->framp_rl))t->fmode=6;break;
+  case 9:  /* diagonal: brake where slide + reverse arc end on the centre line */
+   if(i->odist-t->fsw>KCF_RF_DIAG_MAX){kc_fail(t,"ERROR_F_DIAGONAL",i->now);break;}
+   if(sg*h<0 && kcf_rf_run(py,h,kcf_rs(opp),sg)<=KCF_RF_SLIDE_S*i->speed){
+    t->fmode=10;
+    kc_event(t,"F_RF_BRAKE",px+KCF_RF_SLIDE_S*i->speed*cosf(h)-kcf_rs(opp)*fabsf(sinf(h)),i->speed);
+   }
+   break;
+  case 10: /* braking, wheels straight; then correct the stop point if needed */
+   if((still && kc_elapsed(i->now,t->fok,100)) || kc_elapsed(i->now,t->fat,1500)){
+    float err=sg*h<0?kcf_rf_run(py,h,kcf_rs(opp),sg):0.0f;
+    if(fabsf(err)>KCF_RF_NUDGE_TOL && t->corrections<2){
+     t->corrections++;t->fsw=err;t->fmode=14;kc_event(t,"F_RF_NUDGE",err,(float)t->corrections);
+    }else t->fmode=11;
+   }
+   break;
+  case 14: /* short straight move along the diagonal, sign of fsw = direction */
+   if(t->fsw*kcf_rf_run(py,h,kcf_rs(opp),sg)<=fabsf(i->speed)*KCF_RF_SLIDE_S*fabsf(t->fsw)
+      || kc_elapsed(i->now,t->fat,2000))t->fmode=10;
+   break;
+  case 11: /* set the lock at standstill */
+   if(kc_elapsed(i->now,t->fat,KCF_RF_SERVO_MS)){t->fmode=12;t->fsw=i->odist;}
+   break;
+  case 12: /* reverse on the lock back to heading 0 */
+   if(sg*h>=-(kc_rad(KCF_RF_REV_LEAD)+fabsf(i->speed)*KCF_RF_SLIDE_S/kcf_rs(opp)))t->fmode=13;
+   else if(t->fsw-i->odist>kcf_rs(opp)*kc_rad(KCF_RF_THETA+25.0f) || kc_elapsed(i->now,t->fat,4000)){
+    kc_fail(t,"ERROR_F_REVERSE",i->now);break;
+   }
+   break;
+  case 13: /* braking on the lock */
+   if((still && kc_elapsed(i->now,t->fok,100)) || kc_elapsed(i->now,t->fat,1000)){
+    t->fmode=8;kc_brake(t);kc_enter(t,KCT_F_SETTLE,i->now);
+   }
+   break;
   default:break;
   }
+  if(t->fmode!=before){t->fat=i->now;t->fok=0;kc_event(t,"F_MODE",(float)t->fmode,actual);kc_event(t,"F_POSE",px,py);}
+  if(!t->active || t->phase!=KCT_F_SWERVE)break;
   /* Measure the servo swing on this robot, this run: after the lock-to-lock
    * switch, the yaw rate passes the midpoint of the two lock rates half a
    * swing later. The turn back uses the measured value. */
@@ -182,13 +362,14 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
     kc_event(t,"F_RAMP",m,(float)side);
    }
   }
-  if(t->fmode!=before){kc_event(t,"F_MODE",(float)t->fmode,actual);kc_event(t,"F_POSE",px,py);}
   /* Turning back toward the centre line: a close echo ahead means O2 is near. */
-  if(t->fmode>=4 && i->us_seq!=t->us_seen){
-   t->us_seen=i->us_seq;
-   if(i->us_valid && isfinite(i->us) && i->us>2 && i->us<=KCF_O2_GUARD && fabsf(actual)<=25)t->count++;
-   else t->count=0;
-  }
+  if((t->fmode>=4 && t->fmode<=6) || t->fmode==9){
+   if(i->us_seq!=t->us_seen){
+    t->us_seen=i->us_seq;
+    if(i->us_valid && isfinite(i->us) && i->us>2 && i->us<=KCF_O2_GUARD && fabsf(actual)<=25)t->count++;
+    else t->count=0;
+   }
+  }else t->count=0;
   if(t->count>=2){t->fshort=1;t->fmode=8;kc_brake(t);kc_event(t,"F_O2_CLOSE",i->us,actual);kc_enter(t,KCT_F_SETTLE,i->now);break;}
   if(t->fmode==6){
    int settled=fabsf(actual)<2.5f && fabsf(py)<3.0f && px>x1+15.0f;
@@ -199,6 +380,13 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
   }
   if(t->fmode==3)t->io.drive(KCF_DRIVE_STRAIGHT,kcf_hold(py,actual,i->gyro,sg*KCF_Y_PEAK),KCF_PWM_TURN);
   else if(t->fmode==6)t->io.drive(KCF_DRIVE_STRAIGHT,kcf_hold(py,actual,i->gyro,0.0f),KCF_PWM_TURN);
+  else if(t->fmode==9)t->io.drive(KCF_DRIVE_STRAIGHT,
+   kc_max(-KCF_OFF_MAX,kc_min(KCF_OFF_MAX,KCF_KH*(actual-t->fhead)+KCF_KD*i->gyro)),KCF_PWM_TURN);
+  else if(t->fmode==10)t->io.drive(KCF_DRIVE_BRAKE,0.0f,0);
+  else if(t->fmode==14)t->io.drive(t->fsw>0?KCF_DRIVE_STRAIGHT:KCF_DRIVE_REV_STRAIGHT,0.0f,KCF_PWM_NUDGE);
+  else if(t->fmode==11 || t->fmode==13)t->io.drive(opp==KCF_DRIVE_LEFT?KCF_DRIVE_BRAKE_LEFT:KCF_DRIVE_BRAKE_RIGHT,0.0f,0);
+  else if(t->fmode==12)t->io.drive(opp==KCF_DRIVE_LEFT?KCF_DRIVE_REV_LEFT:KCF_DRIVE_REV_RIGHT,0.0f,
+   sg*actual<-KCF_RF_REV_SLOW?KCF_PWM_REV:KCF_PWM_REV_SLOW);
   else t->io.drive(lock,0.0f,KCF_PWM_TURN);
   break;}
  case KCT_F_SETTLE:{
@@ -215,6 +403,8 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
   t->x=-(py+KCF_AXLE_CENTRE*s);t->y=px+KCF_AXLE_CENTRE*c;t->h=0;
   kc_event(t,"F_O1_DONE",t->x,t->y);
   kc_event(t,"F_O1_TIME",(float)(i->now-t->fstart),actual);
+  /* The O2 code assumes the centre line: off it, the ultrasonic looks past O2. */
+  if(KCF_FINISH_REVERSE && fabsf(t->x)>KCF_RF_END_TOL){kc_fail(t,"ERROR_F_OFF_CENTRE",i->now);break;}
   /* Short O1-O2 gap needs camera ranging (not in this build). */
   if(t->fshort && fabsf(actual)>5){kc_fail(t,"ERROR_F_O2_CLOSE",i->now);break;}
   t->index=0;t->corrections=0;t->expected_range=NAN;t->o2_front=NAN;t->count=0;

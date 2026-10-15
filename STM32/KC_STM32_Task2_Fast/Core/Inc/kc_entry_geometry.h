@@ -12,6 +12,9 @@
 #include <stdint.h>
 #define KCE_MAX_POSES 256
 #define KCE_MARGIN 5.0f
+/* Longest entry/trim diagonal (cm). Was 70: run 700394561 (O2 LEFT, wide O2,
+ * 60 cm gaps) came home 67.6 out and needed 74. Footprint checks still apply. */
+#define KCE_MAX_DIAGONAL 85.0f
 #define KCE_PI 0.017453292519943295f
 typedef struct {float x,y,c,s;} KcePose;
 static KcePose kce_poses[KCE_MAX_POSES];
@@ -32,7 +35,7 @@ static int kce_overlap(const KcePose *p,float y,float xmin,float ymin,float xmax
 }
 static int kce_template_to(float x,float target,float diagonal){
  kce_count=0;kce_target=target;
- if(!isfinite(x)||!isfinite(diagonal)||diagonal<0||diagonal>70)return 0;
+ if(!isfinite(x)||!isfinite(diagonal)||diagonal<0||diagonal>KCE_MAX_DIAGONAL)return 0;
  for(unsigned model=0;model<2;model++)for(unsigned coast=0;coast<2;coast++){
   float px=x,py=0,h=180;
   kce_add(px,py,h);
@@ -119,11 +122,11 @@ static int kce_choose(float x,float current_y,float known_y,float o1,float o2,fl
 /* Bring a wide lane inward while still between the obstacles. Different
  * targets account for measured left/right turn translations. */
 static float kce_trim_target(float x){return x>=0?30.0f:-26.0f;}
-static int kce_trim_choose(float x,float current_y,float o1,float o2,float *diagonal,float *chosen){
- float target=kce_trim_target(x);
+static int kce_trim_choose_to(float x,float target,float current_y,float o1,float o2,float *diagonal,float *chosen);
+static int kce_trim_choose_to(float x,float target,float current_y,float o1,float o2,float *diagonal,float *chosen){
  float shift=x>=0?15+(13.25f-13)/1.414213562f:13+(18.0f-15)/1.414213562f;
  float d=roundf((fabsf(x)-fabsf(target)-shift)*1.414213562f);
- if(d<2 || d>70)return 0;
+ if(d<2 || d>KCE_MAX_DIAGONAL)return 0;
  unsigned best=0,run=0;float begin=0,best_begin=0;
  for(float y=ceilf(current_y-30);y<=floorf(current_y);y+=1){
   if(!kce_template_to(x,target,d))return 0;
@@ -139,4 +142,10 @@ static int kce_trim_choose(float x,float current_y,float o1,float o2,float *diag
  *diagonal=d;*chosen=best_begin+(best-1)*.5f;
  return kce_template_to(x,target,d);
 }
+static int kce_trim_choose(float x,float current_y,float o1,float o2,float *diagonal,float *chosen){
+ return kce_trim_choose_to(x,kce_trim_target(x),current_y,o1,o2,diagonal,chosen);
+}
+/* Smaller inward correction for a short O1-O2 gap: only far enough in for the
+ * side IR (accepts <=45 cm) to see O1 on the way home. */
+static float kce_partial_target(float x){return x>=0?40.0f:-40.0f;}
 #endif

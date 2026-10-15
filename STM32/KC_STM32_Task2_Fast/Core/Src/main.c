@@ -10287,7 +10287,7 @@ void irSensor(void *argument)
 //        );
 
 
-        osDelay(100);
+        osDelay(KC_IR_PERIOD_MS);
     }
 
     /* USER CODE END irSensor */

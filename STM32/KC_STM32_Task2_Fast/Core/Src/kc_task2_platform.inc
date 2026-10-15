@@ -40,8 +40,8 @@ static void kc_odometry(void){
  const float k=WHEEL_CIRCUMFERENCE_CM/ENCODER_COUNTS_PER_REVOLUTION;
  float dl=(float)da*k,dr=-(float)db*k,dh=h-kc_odo_h,d;
  kc_odo_h=h;
- if(kc_drive_mode==KCF_DRIVE_LEFT)d=dr-KC_HALF_TRACK_CM*dh;
- else if(kc_drive_mode==KCF_DRIVE_RIGHT)d=dl+KC_HALF_TRACK_CM*dh;
+ if(kc_drive_mode==KCF_DRIVE_LEFT || kc_drive_mode==KCF_DRIVE_REV_LEFT)d=dr-KC_HALF_TRACK_CM*dh;
+ else if(kc_drive_mode==KCF_DRIVE_RIGHT || kc_drive_mode==KCF_DRIVE_REV_RIGHT)d=dl+KC_HALF_TRACK_CM*dh;
  else d=0.5f*(dl+dr);
  float hm=h-0.5f*dh;
  kc_odo_x-=d*sinf(hm);kc_odo_y+=d*cosf(hm);kc_odo_dist+=d;
@@ -65,8 +65,20 @@ static void kc_platform_drive(int mode,float offset,unsigned pwm){
  else if(target<kc_drive_pwm-40)kc_drive_pwm-=40;
  else kc_drive_pwm=target;
  float ccr;
- if(mode==KCF_DRIVE_LEFT){ccr=SERVO_LEFT_MAX;motorStopA();motorForwardB(kc_drive_pwm);}
+ if(mode>=KCF_DRIVE_BRAKE){
+  /* Short brake, gyro still integrating, steer as asked. TIM4/TIM9 outputs
+   * are active-low: motorStop() (compare 7199) drives both inputs low, which
+   * lets the wheels coast (robot 2026-10-15: ~46 cm/s^2, 26 cm from 58 cm/s).
+   * Compare 0 holds both inputs high: short brake. */
+  kc_drive_pwm=0;motorForwardA(0);motorForwardB(0);
+  ccr=mode==KCF_DRIVE_BRAKE_LEFT?SERVO_LEFT_MAX:mode==KCF_DRIVE_BRAKE_RIGHT?SERVO_RIGHT_MAX:SERVO_CENTER+3.0f;
+ }
+ else if(mode==KCF_DRIVE_LEFT){ccr=SERVO_LEFT_MAX;motorStopA();motorForwardB(kc_drive_pwm);}
  else if(mode==KCF_DRIVE_RIGHT){ccr=SERVO_RIGHT_MAX;motorStopB();motorForwardA(kc_drive_pwm);}
+ /* Reverse lock turns copy motorTurn REVL/REVR. */
+ else if(mode==KCF_DRIVE_REV_LEFT){ccr=SERVO_LEFT_MAX;motorStopA();motorReverseB(kc_drive_pwm);}
+ else if(mode==KCF_DRIVE_REV_RIGHT){ccr=SERVO_RIGHT_MAX;motorStopB();motorReverseA(kc_drive_pwm);}
+ else if(mode==KCF_DRIVE_REV_STRAIGHT){ccr=SERVO_CENTER+3.0f;motorReverseA(kc_drive_pwm);motorReverseB(kc_drive_pwm);}
  else{
   if(offset>30.0f)offset=30.0f;else if(offset<-30.0f)offset=-30.0f;
   ccr=SERVO_CENTER+3.0f+offset; /* +3: same forward trim as motorPidForward */
@@ -142,7 +154,12 @@ static uint8_t kc_platform_tick(MotorCommand_t command,uint8_t entering){
    snprintf(why,sizeof(why),"!KC_T2/ERROR_NOT_STATIONARY_READY/%.2f/%lu/%u;",(double)i.gyro,(unsigned long)(i.now-i.imu_at),(unsigned)i.gyro_ready);
    uartSend(why);
    snprintf(kc_failure,sizeof(kc_failure),"ERROR_NOT_STATIONARY_READY");return 2;
-  }kc_platform_event("HEADING_ORIGIN",i.heading,0);kc_platform_event("HEADING_FEEDBACK",1,2);kc_active=1;
+  }
+  /* Turns aim at desiredHeading, which otherwise keeps the previous run's
+   * last target: a few degrees of residual made entry moves fail their
+   * heading check. Start every run with it on the actual heading. */
+  taskENTER_CRITICAL();desiredHeading=i.heading;taskEXIT_CRITICAL();
+  kc_platform_event("HEADING_ORIGIN",i.heading,0);kc_platform_event("HEADING_FEEDBACK",1,2);kc_active=1;
  }
  if(kc_sub_live){
   uint8_t status=0;
