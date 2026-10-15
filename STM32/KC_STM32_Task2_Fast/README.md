@@ -1,6 +1,53 @@
 # Smooth O1 with reverse finish (Claude, 2026-10-15)
 
-Newest: `KC_Task2_Claude_SmoothO1_FastO2_v17.hex` (v16c plus no stop before or after the O2 U-turn; not yet robot-tested). `KC_Task2_Claude_SmoothO1_FastO2_v16c.hex`: U-turn on both routes with a brake before and after, narrow-O2 back-face search, start-up PING fix (not yet robot-tested). `KC_Task2_Claude_SmoothO1_FastO2_v16c_legacyLeft180.hex`: the same with v15's legacy RIGHT 180 on the LEFT route. `KC_Task2_Claude_SmoothO1_FastO2_v15.hex`: RIGHT-route U-turn, robot-tested (O1 LEFT + O2 RIGHT, 2 of 2 parked). `KC_Task2_Claude_SmoothO1_FastO2_v13.hex`: fast back face, robot-tested (3 runs parked, 37.3 to 39.5 s).
+**Assessment build (tentative, 2026-10-16): `Release/KC_Task2_Claude_SmoothO1_FastO2_v19b.hex`** (SHA-256 `e256482562b4b927f23278e8bf77f8ecbc26f6012c96ad26dedce55b987996ac`). Run it with the teammate's Pi-driven return:
+
+```
+python3 KC_task2_stm32_bridge.py --execute --stage full-pi-return --port /dev/ttyACM0 --laptop-ip 192.168.50.218
+```
+
+Robot, 2026-10-16: 22 of 24 full runs parked, 22.8-28.9 s from START to parked (O1 + O2 on the STM32 14.8-20.6 s, Pi return 5.8-10.7 s), both O2 arrows, O1 60-150 cm away, O1-O2 gaps 60-150 cm, several O2 lengths. The Pi return used in those runs is the teammate's (fast-carpark branch, a newer copy on the robot than commit b94472f on GitHub); `pi/` here is not that version.
+
+The two runs that did not park:
+- O1 at 114 cm: the first O2 echo after the O1 part read 151.8 cm (the far wall; O2 was ~88 cm away). The 100 cm approach at speed 100 stopped about 4 cm short of O2 on the close-echo guard, then the STM32 reset.
+- A narrow O2 with the arrow RIGHT: the back-face search found the face, stopped on its edge, and the standing check flickered for 2 s (`ERROR_BACK_NOT_ACQUIRED`).
+
+Fixes for both are being tested separately (v19c, not on GitHub yet).
+
+Older builds: `KC_Task2_Claude_SmoothO1_FastO2_v17.hex` (rolling U-turn), `..._v16c.hex`, `..._v15.hex`, `..._v13.hex` (robot-tested, firmware return).
+
+## v19b: wider O2 distance band
+
+v19 on the robot (3 runs with the Pi return, the ~150 cm O2): O1 RIGHT + O2 LEFT parked twice in 25.8-25.9 s (native O1+O2 15.1 s; O2's arrow came back during the O1 brake both times). O1 RIGHT + O2 RIGHT stopped with `ERROR_POSITION_LIMIT`: in front of O2 the ultrasonic read 33.3, 21.3, 33.1, 24.6 and 31.5 cm while the face positions those imply stayed within about +-2 cm of 143, and the 26-31 RIGHT band made it creep back and forth five times.
+
+- Both arrows now accept up to 34 cm (LEFT 24.5-34, RIGHT 26-34). The lower limits stay: they keep the corner of the first 90 off the face. At 34 the side IR reads about 20 cm along the face.
+- Corrections aim at 30, mid-band, so a few cm of echo noise after a move stays inside it. That run's first reading (33.3) is now accepted with no correction.
+
+## v19: quicker O2 scan, faster face search on a narrow O2
+
+v18 on the robot with the Pi return (4 runs, O2 LEFT, O2 about 20-25 cm wide): native O1+O2 16.9-18.4 s, the rolling U-turn in 2.2-2.5 s every time.
+
+- **O2 scan.** The fast O1 ends at a standstill about 28-31 cm from O2. Each first 90 needs a range: LEFT 90 (15 cm forward) gives side-IR ~12-19 from 24.5 to 32 cm; RIGHT 90 (20.5 cm forward) the calibrated 26-30, now 26-31. Before the arrow is known, a range that suits either arrow is accepted (`o2_ranged` records which); if the arrow then needs the other, O2_TARGET corrects toward 28. The old 26.5-29.5 (no arrow) and 24.5-28.5 (LEFT) bands made the robot creep 2-3 cm (0.6-0.8 s each, twice in one run). The three v18 runs stopped at 31.1, 29.4 and 29.7 cm: all three now turn at once for their LEFT arrow (about 0.6-1.3 s saved).
+- **Face search on a narrow O2.** After the first 90 the robot is past O2's end. Three open side-IR readings (0.15 s) now start the reverse search at once (was a 0.4 s wait), at speed 40 (was 16: 2.0-2.4 s for 24-28 cm). Log: `FACE_SEARCH/<IR>/<x>`. The rest is unchanged: the IR finds the face, the robot drives on until it loses it and rolls into the U-turn. About 1.5 s saved.
+- **O2 photo during the O1 brake.** The O2 arrow is requested (`CAPTURE_EARLY/2`) when the fast O1's reverse finish starts braking: the robot already faces O2 within ~2 degrees and is almost stopped. That is ~0.5 s before O2_RANGE used to ask; in the v18 runs the reply took ~0.3 s after the request and the first O2 turn waited for it. O2_RANGE keeps this request, and the Pi still switches to its stationary rule (one photo at 50%) when the usual `CAPTURE/2` follows. Not sent for an O1-only run (cap 1).
+- `test_task2.c` replays the v18 scan ranges with LEFT and RIGHT arrows and the faster search; `test_fast_o1.c` checks that the O2 request comes before `F_O1_DONE` for both O1 arrows.
+
+## v18: fast-carpark's return and O2-end fixes
+
+The `fast-carpark` branch (Tan Jou Yuan, commit b94472f on top of v11) adds a Pi-driven return and two firmware fixes.
+
+- **Pi return, unchanged.** `pi/KC_task2_stm32_bridge.py`, `pi/KC_task2_pi_return.py` and `pi/test_pi_return.py` are copied byte for byte. `--stage full-pi-return` runs O1 and O2 on the STM32 (cap 3: it stops after O2's return turn), reads O1's and O2's fronts, the final pose and the back face's end from the `!KC_T2` lines, and drives home with plain FWD/REVS/TURNL/TURNR commands: one straight at 100 past O1, then one turn and one straight into the carpark when that fits, else a 45 or 90 degree S entry, then an ultrasonic park. Needs numpy on the Pi. `test_pi_return.py`: 144 of 144 simulated runs park.
+- **It reads v17/v18 logs correctly.** The new phases (36 U-turn, 37 back search) were added after the old ones, so the states it uses (4, 15, 16) keep their numbers. On a simulated v18 run (O2 RIGHT, rolling U-turn) its parser gave O1 front 71.5, O2 front 151.5, the pose after the return turn and the back face's end at the mirrored far end, all correct. Its `side2` flag looks for state 25 (the old 10 cm back clearance) and stays unset with the U-turn; nothing uses it.
+- **O2's end test (firmware).** The end counts as passed when the side IR reads 15 cm more than the face it was following (30 to 60 cm), not a fixed 60. On their robot run the IR read 19-20 on the face, then 43-62 from an object about 50 cm beyond O2's end; the fixed 60 never held three times and the car drove 95 cm into it. Readings between the face and that level keep the count. The face distance comes from the acquisition readings and a running average along the face; the back face starts from its acquisition (standing or rolling).
+- **Wall stop (firmware).** Two forward echoes within 20 cm while following a face end the run with `EDGE_WALL` and `ERROR_EDGE_WALL` instead of driving on.
+- **Pi return fix after the first v18 run** (O1 RIGHT, O2 LEFT, narrow O2, lane 46.8): on the O1 pass at speed 100 one side-IR reading of 21.8 cm (O1 should have read about 36) moved x 14.6 cm toward O1. The slant planned from there ran the car's left side into the carpark's side wall at the opening. `pi/KC_task2_pi_return.py` now:
+  - lets one reading move x by at most 6 cm (`O1_SINGLE_FIX_MAX`); a larger fix (up to 15) needs two readings in a row within 4 cm;
+  - takes, of unconfirmed readings, the one nearest dead reckoning, and logs every reading in the O1 window (`O1 pass IR readings: [...]`);
+  - keeps 3 cm extra from O1 even after a fix (`O1_FIXED_MARGIN`; 5 without one, as before). The replay of that layout passed O1's corner at 1.9 cm in the 45 deg S with an exact pose;
+  - keeps the slant's body 4 cm from the opening's side walls (`SLANT_SIDE_MARGIN`, was 2).
+  `pi/test_pi_return.py` requires 3 cm from O1 (was 2) and replays the robot layout with the stray reading. 144 of 144 layouts and 12 of 12 replays park; the closest O1 pass is 3.2 cm. The firmware is unchanged.
+- **Not taken:** their back face at speed 100 with the overshoot reversed off. v13's back face (90 until 45 cm before the mirrored far end, then face speed) is robot-tested and needs no reverse.
+- `test_task2.c` has their robot-run replay (ends on the third clear reading, into the rolling U-turn) and the wall stop.
 
 ## v17: no stop before or after the O2 U-turn
 

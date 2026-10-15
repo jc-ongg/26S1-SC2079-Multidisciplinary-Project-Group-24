@@ -61,8 +61,10 @@ static unsigned um_run(KcTask2 *t,KcT2Input *i){
 static unsigned wide_events,pose_estimates;
 static int trace_events=-1;
 static void event(const char *s,float a,float b){
- if(trace_events<0)trace_events=getenv("KC_TRACE")!=NULL;
- if(trace_events && strcmp(s,"STATE"))fprintf(stderr,"   %s %.2f %.2f\n",s,a,b);
+ if(trace_events<0)trace_events=getenv("KC_TRACE")?atoi(getenv("KC_TRACE")):0;
+ /* KC_TRACE=1: events; 2: also STATE, as the STM32's !KC_T2 lines. */
+ if(trace_events==2)fprintf(stderr,"!KC_T2/%s/%.2f/%.2f;\n",s,a,b);
+ else if(trace_events && strcmp(s,"STATE"))fprintf(stderr,"   %s %.2f %.2f\n",s,a,b);
  /* Wide-lane skip of the O1 search only (lane more than 60 cm out); the
   * same event also marks a lane already beside O1 with no IR fix. */
  if(!strcmp(s,"O1_POSE_ESTIMATE") && fabsf(a)-10.4f>60)pose_estimates++;
@@ -234,21 +236,44 @@ int main(void){
  for(int k=0;k<40&&t.active;k++){i.us=63;advance(&t,&i);}
  assert(t.phase==KCT_ERROR&&starts==0); /* stable wrong echo cannot authorize travel */
  /* Robot 2026-10-15: after the approach move the US read a steady 33-34 cm
-  * against 28.46 expected; every echo was rejected and the run failed. */
+  * against 28.46 expected; every echo was rejected and the run failed.
+  * (33-34 is inside the v19b band now: 35.4-36 still needs the move.) */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
  t.phase=KCT_O2_RANGE;t.expected_range=28.46f;t.y=158;t.entered=i.now;
- for(int k=0;k<40&&t.active&&starts==0;k++){i.us=33.4f+(k%3)*0.3f;advance(&t,&i);}
- assert(t.active&&starts==1&&commands[0]==KCT_FWD&&amounts[0]==5);
+ for(int k=0;k<40&&t.active&&starts==0;k++){i.us=35.4f+(k%3)*0.3f;advance(&t,&i);}
+ assert(t.active&&starts==1&&commands[0]==KCT_FWD&&amounts[0]>=5&&amounts[0]<=6);
  reset();i=input();assert(kc_start(&t,hooks,&i,1,1));t.phase=KCT_O2_TARGET;t.side2=2;t.expected_range=9.3f;
  for(int k=0;k<3;k++){i.us=9.3f;advance(&t,&i);}
  assert(commands[0]==KCT_REV&&amounts[0]<=19); /* minimum gap rear budget */
  i.motion_status=2;advance(&t,&i);assert(t.phase==KCT_ERROR);
  reset();i=input();assert(kc_start(&t,hooks,&i,1,1));t.side2=1;t.phase=KCT_O2_BACK_EDGE;t.h=0;
  advance(&t,&i); /* start search */
- for(int k=0;k<5;k++){i.right_ir=k<2?20:45;i.progress=k+1;brake_distance=i.progress;advance(&t,&i);}
- assert(t.phase==KCT_O2_BACK_EDGE); /* 45 is not clear */
- for(int k=0;k<3;k++){i.right_ir=80;i.progress++;brake_distance=i.progress;advance(&t,&i);}
+ for(int k=0;k<5;k++){i.right_ir=k<2?20:31;i.progress=k+1;brake_distance=i.progress;advance(&t,&i);}
+ assert(t.phase==KCT_O2_BACK_EDGE); /* face 20: 31 is below the clear level (35) */
+ for(int k=0;k<3 && t.phase==KCT_O2_BACK_EDGE;k++){i.right_ir=80;i.progress++;brake_distance=i.progress;advance(&t,&i);}
  assert(t.phase==KCT_O2_RETURN_TURN);assert(fabsf(t.y-i.progress)<0.01f); /* actual interrupted encoder distance retained */
+ {
+  /* From fast-carpark. Robot 2026-10-15 run 389806763 (O2 LEFT, front face):
+   * right IR 19.5-20.5 on the face, then 109 and 43-62 from an object ~50 cm
+   * beyond O2's end. The fixed >= 60 x 3 never held and the car drove 95 cm
+   * into it. Now the third reading clear of the 20 cm face ends the face
+   * (into the rolling U-turn, or the corner stop without it). */
+  static const float run[]={19.5f,19.7f,20.5f,20.1f,19.8f,16.8f,109.2f,45.9f,48.8f,51.3f,62.2f,54.1f};
+  KcTask2 f;KcT2Input j=input();assert(kc_start(&f,hooks,&j,1,1));f.side2=1;f.h=90;j.heading=90;
+  f.phase=KCT_IR_ACQUIRE;f.entered=j.now;
+  j.right_ir=19.5f;advance(&f,&j);advance(&f,&j);
+  assert(f.phase==KCT_IR_EDGE&&f.acquired&&fabsf(f.face_ref-19.5f)<0.01f);
+  unsigned k=0;
+  for(;k<12 && f.phase==KCT_IR_EDGE;k++){j.right_ir=run[k];j.progress=k+1;brake_distance=j.progress;advance(&f,&j);}
+  assert(k==9); /* ended on 48.8, the third clear reading */
+  assert(f.phase==((KC_O2_UTURN_ROLL && (KC_O2_UTURN&2))?KCT_O2_UTURN:KCT_O2_CORNER));
+  /* Wall ahead while following a face: stop instead of driving into it. */
+  KcTask2 w;j=input();assert(kc_start(&w,hooks,&j,1,1));w.side2=1;w.h=90;j.heading=90;
+  w.phase=KCT_IR_ACQUIRE;w.entered=j.now;j.right_ir=20;advance(&w,&j);advance(&w,&j);
+  assert(w.phase==KCT_IR_EDGE);
+  j.us=18;j.progress=1;advance(&w,&j);j.progress=2;advance(&w,&j);
+  assert(w.phase==KCT_ERROR&&!w.active);
+ }
  kc_fail(&t,"ERROR_ABORTED",i.now);assert(!t.active);
  reset();i=input();assert(kc_start(&t,hooks,&i,1,1));
  kc_move_to(&t,KCT_FWD,50,7,KCT_O1_PLAN,i.now);
@@ -321,6 +346,29 @@ int main(void){
  i.progress=45;i.motion_status=1;advance(&t,&i);
  assert(t.phase==KCT_ERROR && starts==1);
  i.motion_status=0;
+ /* O2 bands (robot 2026-10-15). v18: run B stopped at 29.36 before the arrow
+  * was known, then read LEFT and crept 3 cm; run A at 31.14 crept 3 cm first.
+  * v19 run 1 (O2 RIGHT) first read 33.29 and chased noisy echoes until
+  * ERROR_POSITION_LIMIT. All now turn straight away; 25.0 suits only LEFT,
+  * so a RIGHT arrow still gets one correction toward 30. */
+ {
+  const float r[]={29.36f,31.14f,33.29f,25.0f};const uint8_t arrow[]={1,1,2,2};
+  for(int c=0;c<4;c++){
+   reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_O2_RANGE;t.entered=i.now;t.y=105;t.h=0;
+   for(int k=0;k<6 && t.phase==KCT_O2_RANGE;k++){i.us=r[c];advance(&t,&i);}
+   assert(t.phase==KCT_O2_VISION && starts==0 && t.o2_ranged==(r[c]>=26?3:1));
+   t.arrow=arrow[c];
+   for(int k=0;k<4 && starts==0;k++){i.us=r[c];advance(&t,&i);}
+   if(r[c]>=26)assert(starts==1 && commands[0]==(arrow[c]==1?KCT_LEFT:KCT_RIGHT));
+   else assert(starts==1 && commands[0]==KCT_REV && amounts[0]>=2 && amounts[0]<=5); /* rear budget caps it */
+  }
+ }
+ /* Narrow O2: 3 open readings after the first 90 start the face search at
+  * once, reversing at KC_O2_SEARCH_SPEED (robot: 0.4 s wait, then speed 16). */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_IR_ACQUIRE;t.entered=i.now;t.side2=1;t.h=90;i.heading=90;
+ i.right_ir=80;
+ for(int k=0;k<3;k++)advance(&t,&i);
+ assert(t.phase==KCT_IR_MEASURE && starts==1 && commands[0]==KCT_REV && t.speed==KC_O2_SEARCH_SPEED && amounts[0]==35);
  /* LEFT O2 band is 24.5-28.5: a run stopping at 27.5 needs no correction,
   * 24.0 is still corrected (IR would be too close after the turn). */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_O2_TARGET;t.side2=1;t.expected_range=28.3f;

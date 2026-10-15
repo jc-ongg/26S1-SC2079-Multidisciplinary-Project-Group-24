@@ -31,8 +31,13 @@ static int clr_mode;
 
 static void h_start(int m, unsigned s, unsigned a) { (void)m; (void)s; (void)a; }
 static float h_stop(void) { drive_mode = -1; braked = 1; return 0; }
+/* sim_cap: kc_start cap (1 = stop after O1). The O2 arrow request at the O1
+ * brake (v19) must come before F_O1_DONE. */
+static int sim_cap = 1, ev_o2_early, ev_o1_done;
 static void h_event(const char *n, float a, float b) {
     if (!strncmp(n, "ERROR_", 6)) snprintf(last_error, sizeof last_error, "%s", n);
+    if (!strcmp(n, "CAPTURE_EARLY") && a == 2 && !ev_o1_done) ev_o2_early = 1;
+    if (!strcmp(n, "F_O1_DONE")) ev_o1_done = 1;
     if (verbose && strcmp(n, "STATE")) printf("  %-16s %8.2f %8.2f\n", n, a, b);
 }
 static void h_drive(int m, float off, unsigned pwm) { drive_mode = m; drive_off = off; drive_pwm = pwm; braked = 0; }
@@ -104,7 +109,7 @@ static Result run(int arrow, double d0, double gap, double kR, double ramp, doub
     KcT2Input in = {0};
     in.gyro_ready = 1; in.imu_at = 0; in.heading = 0; in.us_valid = 0;
     in.ox = 0; in.oy = -8.2;
-    if (!kc_start(&t, hooks, &in, 77, 1)) { Result r = {0}; return r; }
+    if (!kc_start(&t, hooks, &in, 77, (unsigned)sim_cap)) { Result r = {0}; return r; }
     double clr = 1e9; uint32_t now = 0;
     for (; now < 30000 && t.active; now++) {
         double dt = 0.001;
@@ -231,5 +236,14 @@ int main(int argc, char **argv) {
         printf("nominal %c, O1 100 cm away, gap 60: %.2f s START to stopped, front %.1f cm past O1, %.1f cm from O2\n",
                arrow == 1 ? 'L' : 'R', r.t_ms / 1000.0, r.end_x, r.range2);
     }
-    return fails != 0;
+    int early_bad = 0;
+    for (int arrow = 1; arrow <= 2; arrow++) {
+        sim_cap = 2; ev_o2_early = ev_o1_done = 0;
+        run(arrow, 100, 60, 1.0, 1.25, 0, 400);
+        printf("nominal %c, full run: O2 arrow requested at the O1 brake, before F_O1_DONE: %s\n",
+               arrow == 1 ? 'L' : 'R', ev_o2_early && ev_o1_done ? "yes" : "NO");
+        early_bad += !(ev_o2_early && ev_o1_done);
+    }
+    sim_cap = 1;
+    return fails != 0 || early_bad != 0;
 }

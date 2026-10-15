@@ -25,6 +25,17 @@
 #ifndef KC_O2_CLEAR_SPEED
 #define KC_O2_CLEAR_SPEED 30 /* RIGHT route's 10 cm back clearance: short, must stop accurately */
 #endif
+/* From fast-carpark (Tan Jou Yuan, 2026-10-15): O2's end is passed when the
+ * side IR reads this much more than the face it was following (robot: face
+ * 19-20, then 43-62 from something ~50 cm beyond the end; the fixed >= 60
+ * never held 3 times and the car drove 95 cm into it). Capped at the old 60. */
+#define KC_EDGE_CLEAR_MARGIN 15.0f
+#define KC_EDGE_WALL_US 20.0f /* two forward echoes this close while following a face: stop */
+/* Narrow O2 (robot 2026-10-15, ~20-25 cm): the first 90 leaves the robot past
+ * O2's end. 3 open IR readings start the reverse search at once (was a 0.4 s
+ * wait), at this speed (was 16: 2.0-2.4 s for 24-28 cm). */
+#define KC_O2_SEARCH_SPEED 40
+#define KC_O2_SEARCH_OPEN 3
 #ifndef KC_O2_CORNER_180
 #define KC_O2_CORNER_180 1  /* LEFT route: one RIGHT 180 at O2's corner instead of RIGHT 90 + RIGHT 90 */
 #endif
@@ -80,6 +91,8 @@ typedef struct {
  float fk,flast,fpred,framp_lr,framp_rl,fsw,ftarget,fhead,fkscale,fox,foy;
  uint8_t umode;               /* O2 U-turn (kc_o2_uturn.h) */
  uint8_t back_searched;       /* back face looked for by reversing (narrow O2) */
+ uint8_t wall_hits;           /* forward echoes within KC_EDGE_WALL_US while following a face */
+ float face_ref;              /* side-IR distance of the O2 face being followed (0 = unknown) */
  uint32_t uat,ustart,ulast;
  float uk,ukscale,ud0,uodo0,upred,ustraight,uv,usg;
 } KcTask2;
@@ -176,11 +189,15 @@ static void kc_capture(KcTask2 *t,unsigned obstacle,uint32_t now){
 /* Always included: the platform adapter uses its constants. KC_FAST_O1 only
  * decides whether the rolling swerve runs (1) or the stop-and-turn O1 (0). */
 #include "kc_fast_o1.h"
+static float kc_edge_clear_th(const KcTask2 *t){
+ return t->face_ref>0?kc_min(60.0f,kc_max(30.0f,t->face_ref+KC_EDGE_CLEAR_MARGIN)):60.0f;
+}
+static int kc_on_face(const KcTask2 *t,float v){return v<=40 && v<kc_edge_clear_th(t)-5;}
 /* Back face with the IR already on it: O2 is centred on the O1-O2 line, so
  * the far end mirrors the near one. Run fast until KC_O2_BACK_SLOWDOWN
  * before it, then face speed. */
 static void kc_back_face_start(KcTask2 *t,const KcT2Input *i){
- t->acquired=1;t->ir_retry=0;t->edge_started=i->now;t->edge_segments=0;
+ t->acquired=1;t->ir_retry=0;t->edge_started=i->now;t->edge_segments=0;t->face_ref=t->back_gap;
  float s=t->o2_end_x>0?1.0f:-1.0f,fast=s*t->x+fabsf(t->o2_end_x)-KC_O2_BACK_SLOWDOWN;
  if(isfinite(fast) && fast>=25.0f){
   t->back_fast=1;t->back_fast_until=fast;kc_event(t,"BACK_FAST",fast,t->o2_end_x);
@@ -207,6 +224,17 @@ static int kc_arrow(KcTask2 *t,uint32_t token,unsigned obstacle,unsigned side){
  if(!t->active || token!=t->token || obstacle!=t->waiting_arrow || (side!=1 && side!=2))return 0;
  t->arrow=(uint8_t)side;return 1;
 }
+/* O2 ranges the first 90 accepts (side 1 LEFT, 2 RIGHT). LEFT 90 (15 cm
+ * forward): side IR ~12-21 from 24.5 to 34 (needs 10-30). RIGHT 90 (20.5
+ * forward): the lower 26 keeps the corner off the face; up to 34 the IR
+ * reads ~16-20. Corrections aim at 30, mid-band: robot 2026-10-15 (v19, O2
+ * RIGHT) read 33.3, 21.3, 33.1, 24.6, 31.5 at an O2 face steady within
+ * +-2 cm, chased the noise five times and stopped (ERROR_POSITION_LIMIT). Before the arrow is
+ * known a range suiting either is accepted; if the arrow needs the other,
+ * O2_TARGET corrects then (no dearer than now). Robot 2026-10-15: the old
+ * 26.5-29.5 / 24.5-28.5 bands cost 2-3 cm creeps of 0.6-0.8 s, twice in one
+ * run. */
+static int kc_o2_band(float r,int side){return side==1?(r>=24.5f && r<=34.0f):(r>=26.0f && r<=34.0f);}
 static void kc_range_control(KcTask2 *t,const KcT2Input *i,enum KcPhase p,float target){
  if(!kc_us_group(t,i,t->expected_range,isfinite(t->expected_range)?4.0f:180.0f)){
   if(kc_elapsed(i->now,t->entered,3500))kc_fail(t,"ERROR_US_UNRELIABLE",i->now);
@@ -230,14 +258,17 @@ static void kc_range_control(KcTask2 *t,const KcT2Input *i,enum KcPhase p,float 
    * Do not keep chasing28cm only to reposition for LEFT26cm next. */
   target=t->arrow==1?26:28;tolerance=t->arrow==1?1.5f:2.0f;
  }
- /* LEFT (26 cm): accept up to 28.5. Runs stopped at ~27.5 and spent ~0.7 s
-  * on a 2 cm correction; the side IR after the LEFT 90 still reads ~15.6
-  * at 28.5 (needs 10-30). Below 24.5 is still corrected (IR too close). */
- int left26=(p==KCT_O2_RANGE && t->arrow==1) || (p==KCT_O2_TARGET && t->side2==1);
- int inband=left26?(t->range>=target-1.5f && t->range<=target+2.5f):fabsf(t->range-target)<=tolerance;
+ int inband;
+ if(p==KCT_O2_RANGE || p==KCT_O2_TARGET){
+  int side=p==KCT_O2_TARGET?t->side2:t->arrow; /* 0: arrow not known yet */
+  target=30.0f;
+  inband=side?kc_o2_band(t->range,side):(kc_o2_band(t->range,1) || kc_o2_band(t->range,2));
+ }else inband=fabsf(t->range-target)<=tolerance;
  if(inband){
   t->corrections=0;
-  if(p==KCT_O2_RANGE)t->o2_ranged=t->arrow;
+  /* Arrows this range already suits (bit 1 LEFT, 2 RIGHT): O2_VISION then
+   * skips the repeat check. */
+  if(p==KCT_O2_RANGE)t->o2_ranged=(uint8_t)((kc_o2_band(t->range,1)?1:0)|(kc_o2_band(t->range,2)?2:0));
   if(p==KCT_O1_RANGE){
    t->o1_gap=t->range;kc_event(t,"O1_GAP",t->o1_gap,t->o1_gap-32.0f);
    kc_capture(t,1,i->now);
@@ -395,7 +426,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
     t->side2=t->arrow;t->expected_range=t->range;t->corrections=0;
     /* Already positioned for this arrow at O2_RANGE and not moved since:
      * skip the repeat range check (~0.3 s). */
-    if(t->o2_ranged==t->side2){kc_event(t,"O2_RANGE_KEPT",t->range,(float)t->side2);kc_enter(t,t->cap==2?KCT_O2_TARGET:KCT_O2_FIRST,i->now);}
+    if(t->o2_ranged&t->side2){kc_event(t,"O2_RANGE_KEPT",t->range,(float)t->side2);kc_enter(t,t->cap==2?KCT_O2_TARGET:KCT_O2_FIRST,i->now);}
     else kc_enter(t,KCT_O2_TARGET,i->now);
    }
   }break;
@@ -409,9 +440,12 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   t->ir_seen=i->ir_seq;
   float v=kc_inner(t,i);
   if(isfinite(v) && v>=10 && v<=30)t->count++;else t->count=0;
-  if(t->count>=2){t->acquired=1;t->edge_after=KCT_O2_CORNER;t->edge_started=i->now;t->edge_segments=0;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_IR_EDGE,i->now);}
-  else if(kc_elapsed(i->now,t->entered,400)){
-   t->edge_after=KCT_IR_MEASURE;kc_begin_move(t,KCT_REV,16,35,KCT_IR_MEASURE,i->now);
+  if(!isfinite(v) || v>40)t->samples++;else t->samples=0;
+  if(t->count>=2){t->acquired=1;t->face_ref=v;t->edge_after=KCT_O2_CORNER;t->edge_started=i->now;t->edge_segments=0;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_IR_EDGE,i->now);}
+  else if(t->samples>=KC_O2_SEARCH_OPEN || kc_elapsed(i->now,t->entered,400)){
+   /* Nothing beside us: past O2's end (narrow O2). Back along the lane to it. */
+   kc_event(t,"FACE_SEARCH",v,t->x);
+   t->edge_after=KCT_IR_MEASURE;kc_begin_move(t,KCT_REV,KC_O2_SEARCH_SPEED,35,KCT_IR_MEASURE,i->now);
   }break;}
  case KCT_IR_MEASURE:{
   if(kc_elapsed(i->now,i->ir_at,300)){kc_fail(t,"ERROR_IR_STALE",i->now);break;}
@@ -425,13 +459,20 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    }else{if(v>30)t->count=0;if(i->motion_status==1){kc_brake(t);kc_enter(t,KCT_IR_MEASURE,i->now);}}
   }else{
    if(isfinite(v) && v>=10 && v<=30)t->count++;else t->count=0;
-   if(t->count>=2){t->acquired=1;t->edge_after=KCT_O2_CORNER;t->edge_started=i->now;t->edge_segments=0;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_IR_EDGE,i->now);}
+   if(t->count>=2){t->acquired=1;t->face_ref=v;t->edge_after=KCT_O2_CORNER;t->edge_started=i->now;t->edge_segments=0;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_IR_EDGE,i->now);}
    else if(kc_elapsed(i->now,t->entered,2000))kc_fail(t,"ERROR_IR_ACQUIRE",i->now);
   }break;}
  case KCT_IR_EDGE:case KCT_O2_BACK_EDGE:{
-  if(!t->move_live){t->acquired=0;t->ir_retry=0;t->edge_started=i->now;t->edge_segments=0;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_O2_BACK_EDGE,i->now);break;}
+  if(!t->move_live){t->acquired=0;t->ir_retry=0;t->face_ref=0;t->edge_started=i->now;t->edge_segments=0;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,100,KCT_O2_BACK_EDGE,i->now);break;}
   if(kc_elapsed(i->now,i->ir_at,300) || fabsf(actual-t->h)>5 || i->motion_status==2){kc_fail(t,"ERROR_EDGE_GUARD",i->now);break;}
   if(kc_elapsed(i->now,t->edge_started,30000)){kc_fail(t,"ERROR_EDGE_TIMEOUT",i->now);break;}
+  /* Something close ahead (arena wall, another object): stop, never drive into it. */
+  if(i->us_seq!=t->us_seen){
+   t->us_seen=i->us_seq;
+   if(i->us_valid && !kc_elapsed(i->now,i->us_at,250) && isfinite(i->us) && i->us>2 && i->us<=KC_EDGE_WALL_US)t->wall_hits++;
+   else t->wall_hits=0;
+   if(t->wall_hits>=2){kc_event(t,"EDGE_WALL",i->us,t->x);kc_fail(t,"ERROR_EDGE_WALL",i->now);break;}
+  }
   if(i->ir_seq==t->ir_seen)break;
   t->ir_seen=i->ir_seq;
   float v=kc_inner(t,i);
@@ -455,8 +496,13 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    float cap=t->amount,d=kc_brake(t);t->target=kc_max(0,cap-d);
    kc_enter(t,KCT_IR_RECOVER,i->now);break;
   }
-  if(v<=40){t->acquired=1;t->count=0;if(t->phase==KCT_O2_BACK_EDGE)t->back_gap=v;}
-  else if(t->acquired && v>=60)t->count++;else t->count=0;
+  if(kc_on_face(t,v)){
+   t->acquired=1;t->count=0;if(t->phase==KCT_O2_BACK_EDGE)t->back_gap=v;
+   t->face_ref=t->face_ref>0?0.7f*t->face_ref+0.3f*v:v;
+  }
+  else if(t->acquired && v>=kc_edge_clear_th(t))t->count++;
+  else if(v<=40)t->count=0; /* nearer than the clear level: still beside O2 */
+  /* Between the face and the clear level (an object further out): keep the count. */
   if(t->count>=3){
    if(t->phase==KCT_IR_EDGE && KC_O2_UTURN_ROLL && t->io.drive && t->move_live && (KC_O2_UTURN&(t->side2==2?1:2))){
     /* Roll straight into the U-turn: pose now, no brake. The brake used to
@@ -474,9 +520,9 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
     * back leg starting ~10 cm inside its end): keep following it. */
    /* Only while the face is beside us now (60 cm), or to confirm an end
     * already being seen (10 cm): the arena wall is 50 cm past O2's end. */
-   if(t->acquired && t->edge_segments<2 && (v<=40 || t->count>0)){
+   if(t->acquired && t->edge_segments<2 && (kc_on_face(t,v) || t->count>0)){
     t->edge_segments++;kc_brake(t);kc_event(t,"EDGE_CONTINUE",(float)t->edge_segments,v);
-    kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,v<=40?60:10,t->phase,i->now);
+    kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,kc_on_face(t,v)?60:10,t->phase,i->now);
    }else kc_fail(t,"ERROR_NO_EDGE",i->now);
   }
   break;}
@@ -485,7 +531,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
     || kc_elapsed(i->now,t->edge_started,30000)){kc_fail(t,"ERROR_IR_RECOVERY",i->now);break;}
   if(i->ir_seq==t->ir_seen)break;
   t->ir_seen=i->ir_seq;float v=kc_inner(t,i);
-  if(t->acquired && isfinite(v) && v>=60){
+  if(t->acquired && isfinite(v) && v>=kc_edge_clear_th(t)){
    t->samples=0;if(++t->count>=3)kc_enter(t,t->edge_after,i->now);
   }else if(isfinite(v) && v>=10 && v<=30){
    t->count=0;

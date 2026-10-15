@@ -365,7 +365,16 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
    if(kc_elapsed(i->now,t->fat,KCF_RF_SERVO_MS)){t->fmode=12;t->fsw=i->odist;}
    break;
   case 12: /* reverse on the lock back to heading 0 */
-   if(sg*h>=-(kc_rad(KCF_RF_REV_LEAD)+fabsf(i->speed)*KCF_RF_REV_SLIDE_S/kcf_rs(opp)))t->fmode=13;
+   if(sg*h>=-(kc_rad(KCF_RF_REV_LEAD)+fabsf(i->speed)*KCF_RF_REV_SLIDE_S/kcf_rs(opp))){
+    t->fmode=13;
+    /* Facing O2 now (within ~2 deg, nearly stopped): ask for its arrow here,
+     * ~0.5 s before O2_RANGE would. Robot 2026-10-15: the reply took ~0.3 s
+     * and the first O2 turn waited for it. O2_RANGE keeps this request. */
+    if(t->cap!=1 && !t->waiting_arrow){
+     t->waiting_arrow=2;t->arrow=0;t->vision_failed=0;
+     kc_event(t,"CAPTURE_EARLY",2,(float)t->token);
+    }
+   }
    else if(t->fsw-i->odist>kcf_rs(opp)*kc_rad(KCF_RF_THETA+25.0f) || kc_elapsed(i->now,t->fat,4000)){
     kc_fail(t,"ERROR_F_REVERSE",i->now);break;
    }
