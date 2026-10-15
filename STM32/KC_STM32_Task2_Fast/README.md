@@ -1,5 +1,33 @@
 # Smooth O1 with reverse finish (Claude, 2026-10-15)
 
+Newest: `KC_Task2_Claude_SmoothO1_FastO2_v11.hex` (v10's faster O2 plus the ranging fix below; not yet flashed on the robot). `KC_Task2_Claude_SmoothO1_FastO2_v10.hex` is the version robot-tested on 2026-10-15: 6 of 7 full runs parked. `KC_Task2_Claude_SmoothO1_v9.hex` is kept as the slower O2 fallback.
+
+## v11: steady ultrasonic readings are accepted during ranging
+
+v10 robot runs, 2026-10-15: 7 full runs, 6 parked, all with `COMPLETE` and within 1.2 cm of centre in the carpark.
+- **O1 RIGHT + O2 LEFT, 2 runs:** both parked (140 cm O2; 90° crossing once, 45° trim once).
+- **O1 LEFT + O2 LEFT, 1 run:** parked.
+- **O1 RIGHT + O2 RIGHT, 4 runs:** 3 parked (140 cm O2 twice, and a narrower O2 that used the IR re-acquire reverse). One stopped with `ERROR_US_UNRELIABLE` at O2.
+- **O1 LEFT + O2 RIGHT:** not yet run. After an encoder 55.5 cm approach, the ultrasonic read a steady 33 to 34 cm against 28.5 expected. Every echo failed the ±4 cm check for 3.5 s.
+
+In `kc_us_group`, during O1/O2 range positioning only (`O1_RANGE`, `O2_RANGE`, `O2_TARGET`), 8 echoes agreeing within 2 cm and within 10 cm of the expected range are now accepted (`US_REANCHORED/<range>/<expected>`). Echoes further off are still rejected; the existing "stable wrong echo cannot authorize travel" test (63 against 30) still fails safe. `test_task2.c` replays the failed run.
+
+## v10: faster O2
+
+- **Face following** at speed 30 (was 16), side IR every 50 ms (was 100). `KC_O2_FACE_SPEED` and `KC_IR_PERIOD_MS` are in kc_task2.h. The 10 cm back clearance (RIGHT route) and the IR-recovery resume use the same speed.
+- **Braked stop.** Engine-initiated stops (`kc_platform_stop`) short-brake while the robot is moving (both inputs high) and wait until the encoders are quiet (60 ms, at most 400 ms) before releasing. Before, `motorStop()` let the wheels coast, about 3.5 cm from speed 16 and about 12 cm from speed 30, and that coast never reached the pose.
+- **One 180° turn on the LEFT route.** At O2's corner the LEFT route (O2 arrow LEFT) does one RIGHT 180 instead of RIGHT 90 + RIGHT 90 (`KC_O2_CORNER_180`). The wide right lock leaves about 2.5 cm more back-face gap than the pair. There is no measured fit for a continuous 180, so the pose comes from rear-axle wheel and gyro odometry (`TURN180/<dx>/<dy>`). The RIGHT route keeps LEFT 90 + 10 cm + LEFT 90: a left 180 would leave about 7.7 cm to the back face, where the wheel nearly touched.
+- **Tests.** `test_task2.c` passes with the new defaults and with `-DKC_O2_CORNER_180=0 -DKC_O2_FACE_SPEED=16`. `test_platform_settle.c` checks the braked stop.
+
+First robot run on v10, 2026-10-15: O1 RIGHT, O2 LEFT, O2 about 140 cm wide. It parked (`PARK_INSIDE`, `COMPLETE`, 1.2 cm off centre).
+- Smooth O1: 0.01 cm off centre in 5.9 s.
+- O2 corner: `TURN180` odometry gave 20.5 cm sideways and 56.8 cm forward.
+- Back face: one `EDGE_CONTINUE`.
+- Return: lane 92.6 cm out, `RETURN_LANE_CROSS`. `O1_IR_IGNORED/43.45/82.21` rejected the stray object again.
+- Entry: two 90° turns with a 40 cm straight.
+
+The other three arrow combinations are not yet tested on v10.
+
 Hexes in `Release/` (v1 to v8 are in `old_builds/`):
 - `KC_Task2_Claude_SmoothO1_v9.hex`: smooth O1, O2 face speed 16, side IR every 100 ms (same O2 as `SafeO1_v5`)
 - `KC_Task2_Claude_SmoothO1_FastO2_v9.hex`: smooth O1, O2 face speed 24, side IR every 50 ms (same O2 as `SafeO1_FastO2_v5`). Follows O2's faces ~50% faster; worth it for a wide O2.

@@ -70,6 +70,10 @@ int main(void){
  /* Fast-O1 drive: brake modes hold both inputs high (forward PWM 0, the
   * short brake on this board), never motorStop's coast; reverse lock turns
   * drive the outer wheel backward and leave the inner one coasting. */
+ /* A stop while moving short-brakes (both inputs high) and waits for quiet
+  * encoders before releasing, instead of motorStop's coast. */
+ kc_odo_speed=30;pwm_a=pwm_b=500;{uint32_t t0=now;unsigned b0=brakes;kc_platform_stop();
+ assert(pwm_a==0&&pwm_b==0&&now-t0>=60&&brakes==b0+1);}kc_odo_speed=0;
  kc_platform_drive(KCF_DRIVE_STRAIGHT,0,3550);assert(isTurning&&pwm_a==40&&pwm_b==40);
  kc_platform_drive(KCF_DRIVE_BRAKE,0,0);assert(pwm_a==0&&pwm_b==0&&htim12.count==SERVO_CENTER+3);
  kc_platform_drive(KCF_DRIVE_BRAKE_RIGHT,0,0);assert(pwm_a==0&&pwm_b==0&&htim12.count==SERVO_RIGHT_MAX);

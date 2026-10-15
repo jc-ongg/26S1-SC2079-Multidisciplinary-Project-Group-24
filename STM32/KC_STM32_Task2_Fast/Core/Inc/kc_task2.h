@@ -13,16 +13,19 @@
 #define KC_FAST_O1 1
 #endif
 #ifndef KC_O2_FACE_SPEED
-#define KC_O2_FACE_SPEED 16  /* speed while following O2's faces with the side IR */
+#define KC_O2_FACE_SPEED 30  /* following O2's faces with the side IR (was 16; needs the braked stop) */
 #endif
 #ifndef KC_ENTRY_HEADING_TOL
 #define KC_ENTRY_HEADING_TOL 3.0f  /* deg, car-park entry and return-lane moves (was 2) */
+#endif
+#ifndef KC_O2_CORNER_180
+#define KC_O2_CORNER_180 1  /* LEFT route: one RIGHT 180 at O2's corner instead of RIGHT 90 + RIGHT 90 */
 #endif
 #ifndef KC_PARK_REQUIRE_WALLS
 #define KC_PARK_REQUIRE_WALLS 0  /* 1: side IR must see both carpark walls before PARK_INSIDE */
 #endif
 #ifndef KC_IR_PERIOD_MS
-#define KC_IR_PERIOD_MS 100  /* side IR update period (main.c irSensor task) */
+#define KC_IR_PERIOD_MS 50   /* side IR update period (main.c irSensor task); 50 for face speed 30 */
 #endif
 
 enum KcMove { KCT_FWD, KCT_REV, KCT_LEFT, KCT_RIGHT, KCT_REV_LEFT };
@@ -52,12 +55,12 @@ typedef struct {
  enum KcPhase phase, after, edge_after;
  uint32_t token, started, entered, heartbeat, us_seen, ir_seen, group_at, edge_started, park_ir_seen;
  uint8_t active, cap, side1, side2, waiting_arrow, arrow, vision_failed, park_reversed;
- uint8_t move_live, guard_us, acquired, count, samples, corrections, index, ir_retry, centre_right, edge_segments, index_ir_reject;
+ uint8_t move_live, guard_us, acquired, count, samples, corrections, index, ir_retry, centre_right, edge_segments, index_ir_reject, us_rej_count;
  int move;
  float x,y,h, origin_heading, move_heading, start_x,start_y, amount;
  float o1_gap,o1_front,o2_front, us_anchor, group[3], range, last_progress;
  float expected_range, target, back_gap, edge_progress, metric[2], gap;
- float expected_heading, centre_diagonal, entry_y, return_y, centre_turn, trim_turn;
+ float expected_heading, centre_diagonal, entry_y, return_y, centre_turn, trim_turn, turn_ox, turn_oy, turn_h0, us_rej_ref;
  unsigned speed;
  uint8_t return_prepared;
  float return_target;
@@ -125,7 +128,24 @@ static int kc_us_group(KcTask2 *t,const KcT2Input *i,float anchor,float allowanc
  t->us_seen=i->us_seq;
  if(kc_elapsed(i->now,t->group_at,1000))t->samples=0;
  if(!i->us_valid || !isfinite(i->us) || i->us<=2 || i->us>180 || kc_elapsed(i->now,i->us_at,250))return 0;
- if(isfinite(anchor) && fabsf(i->us-anchor)>allowance){kc_event(t,"US_REJECT",i->us,anchor);return 0;}
+ if(isfinite(anchor) && fabsf(i->us-anchor)>allowance){
+  kc_event(t,"US_REJECT",i->us,anchor);
+  /* Range positioning only: 8 echoes agreeing within 2 cm and within 10 cm
+   * of the encoder estimate are the real distance (robot 2026-10-15: a
+   * steady 33-34 cm against 28.5 expected failed the run). A steadier
+   * wrong echo further off is still rejected. */
+  int ranging=t->phase==KCT_O1_RANGE || t->phase==KCT_O2_RANGE || t->phase==KCT_O2_TARGET;
+  if(ranging && fabsf(i->us-anchor)<=10.0f){
+   if(t->us_rej_count && fabsf(i->us-t->us_rej_ref)<=2.0f){
+    if(++t->us_rej_count>=8){
+     t->range=t->us_rej_ref;t->us_rej_count=0;t->samples=0;
+     kc_event(t,"US_REANCHORED",t->range,anchor);return 1;
+    }
+   }else{t->us_rej_ref=i->us;t->us_rej_count=1;}
+  }else t->us_rej_count=0;
+  return 0;
+ }
+ t->us_rej_count=0;
  if(t->samples && fabsf(i->us-t->group[0])>3)t->samples=0;
  if(!t->samples)t->group_at=i->now;
  t->group[t->samples++]=i->us;
@@ -308,7 +328,15 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
   if(i->motion_status==1){
    float d=i->progress;
    if(t->after==KCT_PARK && t->move==KCT_FWD)t->park_forward_total+=d;
-   kc_pose_finish(t,d);
+   if((t->move==KCT_LEFT || t->move==KCT_RIGHT) && t->amount>=180){
+    /* No measured fit for a continuous 180: wheel + gyro odometry of the
+     * rear axle, moved to the robot centre (8.2 cm ahead of the axle). */
+    float h0=kc_rad(t->turn_h0),h1=kc_rad(actual);
+    t->x=t->start_x+(i->ox-t->turn_ox)-KCF_AXLE_CENTRE*(sinf(h1)-sinf(h0));
+    t->y=t->start_y+(i->oy-t->turn_oy)+KCF_AXLE_CENTRE*(cosf(h1)-cosf(h0));
+    t->h=t->move_heading+(t->move==KCT_LEFT?t->amount:-t->amount);
+    t->move_live=0;kc_event(t,"TURN180",t->x-t->start_x,t->y-t->start_y);kc_event(t,"POSE",t->x,t->y);
+   }else kc_pose_finish(t,d);
    if(fabsf(actual-t->h)>((t->after==KCT_CENTRE || t->after==KCT_ENTRY_ALIGN || t->after==KCT_RETURN_TRIM || t->after==KCT_RETURN_TRIM_ALIGN)?KC_ENTRY_HEADING_TOL:5)){kc_event(t,"FINAL_HEADING",actual,t->h);kc_fail(t,"ERROR_FINAL_HEADING",i->now);return;}
    if(t->guard_us){t->expected_range=t->range+(t->move==KCT_REV?d:-d);t->guard_us=0;}
    kc_enter(t,t->after,i->now);
@@ -397,11 +425,19 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    if(++t->samples>=2){
     if(t->target<2){kc_fail(t,"ERROR_EDGE_LIMIT",i->now);break;}
     enum KcPhase leg=t->edge_after==KCT_O2_CORNER?KCT_IR_EDGE:KCT_O2_BACK_EDGE;
-    t->acquired=1;kc_begin_move(t,KCT_FWD,16,(unsigned)floorf(t->target),leg,i->now);
+    t->acquired=1;kc_begin_move(t,KCT_FWD,KC_O2_FACE_SPEED,(unsigned)floorf(t->target),leg,i->now);
    }
   }else{t->count=0;t->samples=0;}
   break;}
  case KCT_O2_CORNER:
+  if(KC_O2_CORNER_180 && t->side2==1){
+   /* LEFT route: the two RIGHT 90s at the corner had nothing between them.
+    * One RIGHT 180 skips a stop and a restart; the wide right lock leaves
+    * ~2.5 cm more back-face gap than the pair. Pose from odometry. */
+   t->guard_us=0;t->acquired=0;t->index=0;
+   t->turn_ox=i->ox;t->turn_oy=i->oy;t->turn_h0=actual;
+   kc_move_to(t,KCT_RIGHT,50,180,KCT_O2_BACK_ACQUIRE,i->now);break;
+  }
   t->guard_us=0;kc_move_to(t,t->side2==1?KCT_RIGHT:KCT_LEFT,50,90,KCT_O2_BACK_TURN,i->now);break;
  case KCT_O2_BACK_TURN:
   /* RIGHT route: stationary back-face IR was 7.7 cm and the wheel nearly
@@ -412,7 +448,7 @@ static void kc_step(KcTask2 *t,const KcT2Input *i){
    * Translation is provisional; actual back IR is still required afterward. */
   if(t->side2==2){
    t->guard_us=0;kc_event(t,"BACK_CLEARANCE",10,17.7f);
-   kc_move_to(t,KCT_FWD,16,10,KCT_O2_BACK_CLEAR,i->now);break;
+   kc_move_to(t,KCT_FWD,KC_O2_FACE_SPEED,10,KCT_O2_BACK_CLEAR,i->now);break;
   }
   t->acquired=0;kc_move_to(t,KCT_RIGHT,50,90,KCT_O2_BACK_ACQUIRE,i->now);
   t->index=0;break;

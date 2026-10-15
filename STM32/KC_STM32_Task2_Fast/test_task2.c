@@ -18,6 +18,7 @@ static KcT2Input input(void){KcT2Input i={0};i.now=1000;i.imu_at=1000;i.us_at=10
 static void advance(KcTask2 *t,KcT2Input *i){i->now+=100;i->us_at=i->ir_at=i->imu_at=i->now;i->us_seq++;i->ir_seq++;t->heartbeat=i->now;kc_step(t,i);}
 static void reset(void){starts=stops=0;brake_distance=0;}
 static float sim_front_edge=6,sim_back_edge=30,edge_run;
+static unsigned turns180;
 static void simulate(unsigned a1,unsigned a2,unsigned cap){
  reset();KcTask2 t;KcT2Input i=input();assert(kc_start(&t,hooks,&i,77,cap));
  unsigned loops=0,previous_starts=0;enum KcPhase last=KCT_IDLE;
@@ -29,6 +30,15 @@ static void simulate(unsigned a1,unsigned a2,unsigned cap){
   if(t.phase==KCT_MOVE){
    i.progress=t.amount;brake_distance=i.progress;i.motion_status=1;
    i.heading=t.move_heading+(t.move==KCT_LEFT?t.amount:(t.move==KCT_RIGHT||t.move==KCT_REV_LEFT)?-t.amount:0);
+   if((t.move==KCT_LEFT||t.move==KCT_RIGHT)&&t.amount>=180){
+    /* Rear-axle odometry for a continuous 180, giving the same end pose as
+     * two calibrated 90s (RIGHT: 17.5 back, 58.5 right; LEFT: 16 back, 46 left). */
+    float h0=kc_rad(t.move_heading),h1=kc_rad(i.heading);
+    float f=t.move==KCT_RIGHT?-17.5f:-16.0f,sd=t.move==KCT_RIGHT?58.5f:-46.0f;
+    float dxc=-f*sinf(h0)+sd*cosf(h0),dyc=f*cosf(h0)+sd*sinf(h0);
+    i.ox=t.turn_ox+dxc+8.2f*(sinf(h1)-sinf(h0));i.oy=t.turn_oy+dyc-8.2f*(cosf(h1)-cosf(h0));
+    turns180++;
+   }
   }else i.heading=t.h;
   if(t.phase==KCT_O1_RANGE)i.us=71.5f-t.y-11.5f;
   else if(t.phase==KCT_O2_RANGE||t.phase==KCT_O2_TARGET)i.us=simulated_o2_front-t.y-11.5f;
@@ -59,7 +69,9 @@ static void simulate(unsigned a1,unsigned a2,unsigned cap){
 }
 int main(void){
  simulate(1,1,1);simulate(2,1,1);
- simulate(1,1,0);simulate(1,2,0);simulate(2,1,0);simulate(2,2,0);
+ turns180=0;simulate(1,1,0);assert(turns180==(KC_O2_CORNER_180?1:0)); /* O2 LEFT: one 180 at the corner */
+ turns180=0;simulate(1,2,0);assert(turns180==0);                       /* O2 RIGHT: 90, 10 cm, 90 */
+ simulate(2,1,0);simulate(2,2,0);
  simulate(1,1,2);simulate(1,2,3);
  /* All arrows at the rules minimum60cm and maximum150cm obstacle gap. */
  for(unsigned spacing=0;spacing<2;spacing++){
@@ -85,6 +97,12 @@ int main(void){
  t.expected_range=30;t.phase=KCT_O2_TARGET;t.side2=2;t.range=30;
  for(int k=0;k<40&&t.active;k++){i.us=63;advance(&t,&i);}
  assert(t.phase==KCT_ERROR&&starts==0); /* stable wrong echo cannot authorize travel */
+ /* Robot 2026-10-15: after the approach move the US read a steady 33-34 cm
+  * against 28.46 expected; every echo was rejected and the run failed. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
+ t.phase=KCT_O2_RANGE;t.expected_range=28.46f;t.y=158;t.entered=i.now;
+ for(int k=0;k<40&&t.active&&starts==0;k++){i.us=33.4f+(k%3)*0.3f;advance(&t,&i);}
+ assert(t.active&&starts==1&&commands[0]==KCT_FWD&&amounts[0]==5);
  reset();i=input();assert(kc_start(&t,hooks,&i,1,1));t.phase=KCT_O2_TARGET;t.side2=2;t.expected_range=9.3f;
  for(int k=0;k<3;k++){i.us=9.3f;advance(&t,&i);}
  assert(commands[0]==KCT_REV&&amounts[0]<=19); /* minimum gap rear budget */
@@ -145,7 +163,7 @@ int main(void){
  /* RIGHT back-clearance advance shifts the next turn outward, not sideways. */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,3));
  t.phase=KCT_O2_BACK_TURN;t.side2=2;t.x=49.12f;t.y=157.26f;t.h=0;
- advance(&t,&i);assert(t.move==KCT_FWD&&t.amount==10&&t.speed==16&&!t.guard_us);
+ advance(&t,&i);assert(t.move==KCT_FWD&&t.amount==10&&t.speed==KC_O2_FACE_SPEED&&!t.guard_us);
  i.progress=10.3f;i.motion_status=1;advance(&t,&i);
  assert(fabsf(t.x-49.12f)<0.01f&&fabsf(t.y-167.56f)<0.01f);
  i.motion_status=0;advance(&t,&i);assert(t.move==KCT_LEFT&&t.amount==90);

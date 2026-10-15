@@ -102,6 +102,19 @@ static void kc_encoder_sample(void){
  kc_progress+=kc_subcmd.command==REVS?-d:d;
 }
 static float kc_platform_stop(void){
+ /* motorStop() lets the wheels coast (~12 cm from O2 face speed 30) and the
+  * coast never reached the pose. Short-brake (both inputs high) and wait
+  * until the encoders are quiet, so the stopping distance is counted. */
+ if(fabsf(kc_odo_speed)>2.0f){
+  motorForwardA(0);motorForwardB(0);
+  uint16_t a=(uint16_t)__HAL_TIM_GET_COUNTER(&htim2),b=(uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
+  uint32_t t0=HAL_GetTick(),quiet=t0;
+  while(HAL_GetTick()-t0<400 && HAL_GetTick()-quiet<60){
+   osDelay(10);
+   uint16_t na=(uint16_t)__HAL_TIM_GET_COUNTER(&htim2),nb=(uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
+   if(na!=a || nb!=b){a=na;b=nb;quiet=HAL_GetTick();}
+  }
+ }
  motorStop();kc_native_fast_forward=0;kc_drive_mode=-1;kc_drive_pwm=0;
  /* Keep the gyro running during braking and servo centring. */
  if(isTurning){
