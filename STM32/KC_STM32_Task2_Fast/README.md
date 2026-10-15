@@ -1,8 +1,76 @@
 # Smooth O1 with reverse finish (Claude, 2026-10-15)
 
-Hexes in `Release/` (v1 and v2 are in `old_builds/`):
-- `KC_Task2_Claude_SmoothO1_v3.hex`: smooth O1, O2 face speed 16, side IR every 100 ms (same O2 as `SafeO1_v5`)
-- `KC_Task2_Claude_SmoothO1_FastO2_v3.hex`: smooth O1, O2 face speed 24, side IR every 50 ms (same O2 as `SafeO1_FastO2_v5`)
+Hexes in `Release/` (v1 to v8 are in `old_builds/`):
+- `KC_Task2_Claude_SmoothO1_v9.hex`: smooth O1, O2 face speed 16, side IR every 100 ms (same O2 as `SafeO1_v5`)
+- `KC_Task2_Claude_SmoothO1_FastO2_v9.hex`: smooth O1, O2 face speed 24, side IR every 50 ms (same O2 as `SafeO1_FastO2_v5`). Follows O2's faces ~50% faster; worth it for a wide O2.
+
+## v9: no false O1 fix from a wide lane
+
+On a v8 full run (O2 about 135 cm, return lane 100 cm out, `RETURN_LANE_CROSS` planned), the side IR saw an object 36 cm away during the O1 search. O1 was really about 85 cm away. `O1_EDGE` took it for O1 and moved the pose to 46 cm out, then the 45° entry drove into the carpark wall.
+
+- **O1 sighting check.** `O1_EDGE` now accepts an IR reading as O1 only within 15 cm of where the odometry lane puts O1 (`|x| - 10.4`). Otherwise it logs `O1_IR_IGNORED/<IR>/<expected>` once and keeps the lane. From a lane beyond IR range nothing is accepted. `test_task2.c` reproduces the run (it fails on v8), and the wide-O2 full courses now include the stray 36 cm object.
+- **Safer face extension.** `EDGE_CONTINUE` extends a face-following move by 60 cm only while the IR sees the face right now (≤ 40 cm), or by 10 cm to confirm an end already being detected. If the end was missed, it stops rather than drive toward the arena wall 50 cm past O2.
+- **Start tip.** `ERROR_F_O1_CLOSE` at START (O1 144 cm away, two echoes under 24 cm) means something close was in front of the ultrasonic. Keep the space in front clear.
+
+## v8: return from a very wide O2 (90 deg crossing)
+
+On v7, both robot runs with a 140 cm O2 went round O2 (`EDGE_CONTINUE` worked), then stopped with `ERROR_RETURN_LANE_PATH` on lanes 94.5 and 85.3 cm out. At 45° that much sideways travel needs about 150 cm of length, and the layout had about 110 cm.
+
+The entry planner can now use the legacy 90° turns:
+- `kce_template_turn(..., 90)` uses LEFT 15.0 cm fwd / 31.0 cm side and RIGHT 20.5 / 38.0, the same values `kc_pose_finish` uses.
+- The middle leg becomes a straight across.
+- The same footprint checks apply against O1, O2, the carpark walls and the opening.
+- `KCE_MAX_POSES` is 320, because a 90° plan needs 308 sample poses.
+
+When nothing at 45° fits, `RETURN_CLEAR` tries, in order:
+1. `RETURN_LANE_CROSS`: keep the lane past O1, then cross with turn, straight, turn in front of the carpark. `REAR_CLEAR` plans it; `ENTRY_TURN/90/<x>`.
+2. `RETURN_LANE_CROSS_TRIM`: cross between O2 and O1 onto a 30, 35 or 40 cm lane, or 22 to 30 cm with no straight. The normal 45° entry follows.
+
+Results:
+- **Planner coverage** (`RETURN_CLEAR` order, lanes 46 to 120 cm, 20 layouts): 1,518 of 1,520 plan. The exceptions are lane -76 with O1 at 71.5 or 81.8 and a 60 cm gap, which stop safely.
+- **Both failed robot runs:** they now plan (-94.5 as a cross-trim, +85.3 as a cross).
+- **Full-course simulation** (`test_task2.c`, 140 cm O2, all four arrow combinations): every run parks. At 60 and 81 cm gaps all use the crossing; at 150 cm the normal 45° trim fits.
+- **Regression test** for a very wide lane: the run now crosses instead of stopping. A lane beyond the crossing's reach (200 cm out) still stops with `ERROR_RETURN_LANE_PATH`.
+
+Not robot-tested yet. The 90° turns are the legacy gyro-terminated turns used around O2.
+
+## v7: wide O2
+
+Two v6 full runs (O1 RIGHT, O2 LEFT, O2 about 140 cm wide) stopped with `ERROR_NO_EDGE`. The back leg starts about 10 cm inside O2's end, and its face-following move is capped at 100 cm. The car followed the back face for the full 100 cm and was still beside it.
+
+- **Longer face following.** If a face-following move (front or back of O2) ends while the face has been seen, the car follows it for up to 2 more 60 cm moves (`EDGE_CONTINUE/<n>/<IR cm>`). That covers about 220 cm. `test_task2.c` has a test for it.
+- **Return limit, not fixed.** A 140 cm O2 brings the car home about 85 to 90 cm off centre. In the 2026-10-15 test layout (O1 about 70 cm from the start, O1 to O2 gap about 80 cm), no safe way into the carpark fits. The planner refuses and the car stops behind O2 with `ERROR_RETURN_LANE_PATH`. Return planning works in every tested layout up to about 74 cm off centre (O2 up to about 120 cm), and in 8 of 12 layouts at 85 to 100 cm. The partial-trim fallback now also tries 50, 60 and 70 cm targets, which only helps beyond about 115 cm. Supporting 140 cm O2 in short layouts needs a new return manoeuvre, such as a 90° crossing between O1 and the carpark.
+
+## v6: brake skid in the O1 pose, gyro bus recovery
+
+- **Brake skid.** Tape measurements on 4 v4/v5 O1 runs disagreed with the log. RIGHT arrows logged 0.1 to 0.7 cm off centre but ended 3.5 to 5 cm left. LEFT arrows logged 1.2 to 1.5 cm left but ended 2.5 to 4 cm right. The short brake locks the rear wheels, and the car skids on about 5 cm along the diagonal after the encoders stop. The firmware now brakes `KCF_RF_SKID` (5 cm) earlier and adds the skid to its pose once stopped (`F_RF_SKID/<cm>/<y>`). `test_fast_o1.c` simulates the skid (true pose moves, odometry does not). Without the model it reproduces the robot's 4.5 cm error; with it the true end is within 0.2 cm nominally.
+- **Gyro recovery.** The gyro (ICM20948 on I2C2) sometimes stops answering until reset (`ERROR_NOT_STATIONARY_READY/…/<ms since last sample>/1`). After 10 failed reads in a row, the IMU task now frees the bus (9 SCL pulses + STOP on PB10/PB11), resets I2C2 and wakes the IMU again. `IMU_RECOVERIES/<n>` at START shows if this happened. A run already stops (300 ms stale check) if the gyro drops out mid-run.
+- `test_platform_settle.c` compiles again and checks the fast-O1 drive modes: brake = both inputs high, reverse lock turns, reverse straight.
+
+v6 simulation:
+- Robot-like sweep, skid 4 to 6 cm: 93,216 of 93,312 cases keep 3 cm or more. The worst case is 2.7 cm from O1 (LEFT), and none touch. End within 2.2 cm of centre and 1.3°.
+- Stress sweep, skid 2.5 to 7.5 cm: no collisions.
+
+## v5: parking without the side-wall check, O1 lateral trim
+
+- **Parking.** `KC_PARK_REQUIRE_WALLS` (kc_task2.h) is 0 in this build. The car parks once the front ultrasonic reads 10 to 20 cm, after the existing stopped recheck, without needing both side IR walls. If it is closer than 10 cm, the one bounded retreat (at most 10 cm, back along its own entry path) no longer needs the walls either. `PARK_INSIDE/<left IR>/<right IR>` still logs the side readings. Set it to 1 to restore the wall check. `test_task2.c` covers both settings.
+- **Lateral trim.** `KCF_RF_Y_TRIM_L` / `KCF_RF_Y_TRIM_R` (kc_fast_o1.h), in cm, with + meaning end further left. A v4 RIGHT run logged 0.08 cm off centre but was ~5 cm left by eye. The odometry cannot see that error (likely skid in the diagonal brake and wheel slip starting the reverse), so the trims are set from tape measurements. Both are 0 in v5. The pose handed to the O2 code includes the trim.
+
+## v4: end-of-O1 centring calibrated from 7 robot runs
+
+On v2/v3 the O1 finish was within 0.05 to 2.4 cm of centre, and it always stopped 0.6 to 1.5° short of straight (LEFT negative, RIGHT positive).
+
+- **Diagonal brake slide.** The robot slid 4.3 to 4.75 cm from 57 to 58 cm/s (0.076 to 0.083 s). The firmware assumed 0.06 s, so it stopped about 1 cm long. `KCF_RF_SLIDE_S` is now 0.078. The correction move now triggers at 1.0 cm (was 1.5).
+- **Reverse brake.** After braking the reverse, the car rotated another 1.6 to 2.1° every time. The fixed extra 1° lead made it stop short, so it is now 0 and the speed-based lead uses its own measured value (`KCF_RF_REV_SLIDE_S` 0.063 s).
+
+v4 robot-like simulation, 31,104 cases, all passing:
+- End off centre: median 0.35 to 0.5 cm, worst 1.3 cm (v3: worst 1.7)
+- End heading: median 0.5°, worst 1.3° (v3: worst 3.5°)
+- Closest to O1 / O2: LEFT 3.0 / 5.1 cm, RIGHT 5.9 / 9.3 cm
+
+The stress sweep has no collisions.
+
+The car centres on the line it starts on. Line it up with O1 and O2 at the start: 1° crooked puts it 1 to 2 cm off O2's centre, which the firmware cannot see.
 
 ## v3: fixed reverse radii (after 2 o1 runs and 4 full runs on v2)
 

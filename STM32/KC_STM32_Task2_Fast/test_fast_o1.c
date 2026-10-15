@@ -20,6 +20,10 @@ static double o2_half = 50, clr2_min, sim_krev = 1.0;  /* reverse radius error o
  * round ~7 cm later than this model. Modelled as a steering dead distance. */
 static double sim_dead = 13.0, servo_hold_until = -1, servo_held;
 static int prev_mode = -1;
+/* Robot: after the diagonal brake the car skids ~5 cm the encoders never see.
+ * The sim moves the true pose over the first 100 ms of the brake, not the odometry. */
+static double sim_skid = 5.0, off_x, off_y;
+static int prev_fmode;
 static int braked;
 static char last_error[64];
 static int verbose;
@@ -92,6 +96,8 @@ static Result run(int arrow, double d0, double gap, double kR, double ramp, doub
     /* robot: reverse radius did not follow the forward one (see kc_fast_o1.h) */
     sim_rev_l = KCF_RS_LEFT * sim_krev; sim_rev_r = KCF_RS_RIGHT * sim_krev;
     drive_mode = -1; braked = 1; last_error[0] = 0; servo = 0; clr2_min = 1e9; servo_hold_until = -1; prev_mode = -1;
+    off_x = off_y = 0; prev_fmode = 0;
+    uint32_t skid_from = 0;
     double x1 = 11.5 + d0;                     /* O1 near face; front bumper starts at 11.5 */
     double x2 = x1 + 10 + gap;
     double odist = 0, us = -1, heading0 = 0, v_dist = 0; uint32_t us_seq = 0, us_at = 0;
@@ -131,6 +137,12 @@ static Result run(int arrow, double d0, double gap, double kR, double ramp, doub
         bot.k = bot.v >= 0 ? servo : servo * (servo > 0 ? sim_rl / sim_rev_l : sim_rr / sim_rev_r);
         bot.h += bot.k * ds; bot.x += cos(bot.h) * ds; bot.y += sin(bot.h) * ds;
         odist += ds * sim_odo;
+        if (t.phase == KCT_F_SWERVE && prev_fmode == 9 && t.fmode == 10) skid_from = now;
+        if (t.phase == KCT_F_SWERVE) prev_fmode = t.fmode;
+        if (skid_from && now - skid_from < 100) {
+            double e = sim_skid / 100;
+            bot.x += cos(bot.h) * e; bot.y += sin(bot.h) * e; off_x += cos(bot.h) * e; off_y += sin(bot.h) * e;
+        }
         if (now % 90 == 0) { us = us_read(x1, x2, 30); us_seq++; us_at = now; }
         double c = clearance(x1); if (c < clr) { clr = c; clr_mode = t.phase == KCT_F_SWERVE ? t.fmode : -1; }
         if (c < 0) { snprintf(last_error, sizeof last_error, "COLLISION_O1"); break; }
@@ -140,7 +152,7 @@ static Result run(int arrow, double d0, double gap, double kR, double ramp, doub
         in.now = now; in.imu_at = now; in.heading = (float)(heading0 + bot.h * 180 / M_PI);
         in.gyro = (float)(bot.k * bot.v * 180 / M_PI);
         in.us_seq = us_seq; in.us_at = us_at; in.us = (float)us; in.us_valid = us > 0;
-        in.ox = (float)(-bot.y); in.oy = (float)bot.x; in.odist = (float)odist;
+        in.ox = (float)(-(bot.y - off_y)); in.oy = (float)(bot.x - off_x); in.odist = (float)odist;
         if (now % 50 == 0) { in.speed = (float)((odist - v_dist) * 20.0); v_dist = odist; }  /* firmware: 50 ms window */
         t.heartbeat = now;
         if ((int)now == arrow_ms) kc_arrow(&t, 77, 1, (unsigned)arrow);
@@ -155,6 +167,7 @@ static double max_abs(double a, double b) { return fabs(a) > b ? fabs(a) : b; }
 
 int main(int argc, char **argv) {
     if (getenv("DEAD")) sim_dead = atof(getenv("DEAD"));
+    if (getenv("SKID")) sim_skid = atof(getenv("SKID"));
     /* ROBOTLIKE=1: spreads seen across the 2026-10-15 robot runs (F_RAMP 24.2-24.8, radius
      * 0.97-0.99, turn-in within +-0.9 cm), doubled. Default: the wider stress sweep. */
     int robotlike = getenv("ROBOTLIKE") != NULL;
@@ -177,14 +190,17 @@ int main(int argc, char **argv) {
         for (int oi = 0; oi < 2; oi++)
         for (int ai = 0; ai < 2; ai++)
         for (int vi = 0; vi < 3; vi++)
-        for (int ei = 0; ei < 3; ei++) {
+        for (int ei = 0; ei < 3; ei++)
+        for (int si = 0; si < 3; si++) {
+            sim_skid = robotlike ? (double[]){4, 5, 6}[si] : (double[]){2.5, 5, 7.5}[si];
             sim_krev = robotlike ? (double[]){0.97, 1.0, 1.03}[vi] : (double[]){0.94, 1.0, 1.06}[vi];
             sim_dead = robotlike ? (double[]){12, 13, 14}[ei] : (double[]){11, 13, 15}[ei];
             double d0 = (double[]){60, 150}[di], gap = (double[]){60, 75, 100, 150}[gi];
             /* lag scale: the robot measures F_RAMP ~24.2-24.8 every run = 1.25 here; +-20% */
             double kR = (double[]){0.92, 1.0, 1.08}[ki], ramp = (double[]){1.0, 1.25, 1.5}[ri];
             if (robotlike) { kR = (double[]){0.97, 1.0, 1.03}[ki]; ramp = (double[]){1.15, 1.25, 1.35}[ri]; }
-            sim_brake = (double[]){0.01, 0.03, 0.08}[bi];
+            /* per-ms speed decay while braking: robot slides 0.076-0.083 s = ~0.013 */
+            sim_brake = robotlike ? (double[]){0.0115, 0.013, 0.0145}[bi] : (double[]){0.01, 0.03, 0.08}[bi];
             double y0 = (double[]){-2, 2}[yi];
             o2_half = (double[]){15, 50}[oi];
             int arrow_ms = ai ? 6000 : 400;          /* late arrow forces the stop-and-wait path */
@@ -209,7 +225,7 @@ int main(int argc, char **argv) {
                arrow == 1 ? 'L' : 'R', w1, w2, wy, wh, rmin, rmax, tmax / 1000.0);
     }
     printf("%d/%d scenarios passed\n", n - fails, n);
-    sim_brake = 0.03; o2_half = 50; sim_krev = 1.0; sim_dead = 13;
+    sim_brake = 0.013; o2_half = 50; sim_krev = 1.0; sim_dead = 13; sim_skid = 5;
     for (int arrow = 1; arrow <= 2; arrow++) {
         Result r = run(arrow, 100, 60, 1.0, 1.25, 0, 400);
         printf("nominal %c, O1 100 cm away, gap 60: %.2f s START to stopped, front %.1f cm past O1, %.1f cm from O2\n",

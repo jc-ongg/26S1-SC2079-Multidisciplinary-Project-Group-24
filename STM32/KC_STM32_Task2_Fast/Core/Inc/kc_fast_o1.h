@@ -83,6 +83,16 @@
 #endif
 #define KCF_RF_THETA (sg>0?KCF_RF_THETA_L:KCF_RF_THETA_R)
 #define KCF_RF_REAR  (sg>0?KCF_RF_REAR_L:KCF_RF_REAR_R)
+/* Lateral trim for the end of O1, cm, + = end further LEFT than the odometry
+ * centre line. Robot 2026-10-15: a RIGHT pass reported centred (-0.08) but was
+ * ~5 cm left by tape; set from tape measurements, not from the log. */
+#ifndef KCF_RF_Y_TRIM_L
+#define KCF_RF_Y_TRIM_L  0.0f
+#endif
+#ifndef KCF_RF_Y_TRIM_R
+#define KCF_RF_Y_TRIM_R  0.0f
+#endif
+#define KCF_RF_Y_TRIM (sg>0?KCF_RF_Y_TRIM_L:KCF_RF_Y_TRIM_R)
 #ifndef KCF_RF_DTHETA
 #define KCF_RF_DTHETA    6.0f  /* deg the inward angle may change to land on the target */
 #endif
@@ -93,8 +103,22 @@
 #define KCF_RF_XS_MIN_R -3.0f  /* RIGHT arrow: inward turn on the tighter left lock */
 #endif
 #define KCF_RF_XS_MIN (sg>0?KCF_RF_XS_MIN_L:KCF_RF_XS_MIN_R)
+/* Short-brake slides, robot 2026-10-15 (7 runs): the diagonal brake slid
+ * 4.3-4.75 cm from 57-58 cm/s (0.076-0.083 s); after the reverse the car
+ * turned on 1.6-2.1 deg more (~0.063 s at ~14 cm/s). */
 #ifndef KCF_RF_SLIDE_S
-#define KCF_RF_SLIDE_S  0.06f  /* short-brake slide = speed x this (s); corrected by the nudge */
+#define KCF_RF_SLIDE_S  0.078f /* diagonal: slide = speed x this (s) */
+#endif
+#ifndef KCF_RF_REV_SLIDE_S
+#define KCF_RF_REV_SLIDE_S 0.063f
+#endif
+/* The short brake locks the rear wheels: after the encoders stop the car
+ * skids on, unseen. Robot 2026-10-15, tape vs log, 4 runs: it ended 3.7-5.5
+ * cm further along the diagonal side than the odometry said, i.e. ~5 cm of
+ * skid along the diagonal. Braked earlier by this much and added to the
+ * pose once stopped. */
+#ifndef KCF_RF_SKID
+#define KCF_RF_SKID 5.0f
 #endif
 /* Robot runs 2026-10-15 (3 x LEFT): from straight to the inward lock the car
  * went ~7 cm further than the model before the heading came round. */
@@ -102,7 +126,7 @@
 #define KCF_RF_TURNIN_DEAD 12.0f  /* fitted in test_fast_o1.c to the robot's turn-in */
 #endif
 #ifndef KCF_RF_NUDGE_TOL
-#define KCF_RF_NUDGE_TOL 1.5f  /* cm along the diagonal before a correction move */
+#define KCF_RF_NUDGE_TOL 1.0f  /* cm along the diagonal before a correction move */
 #endif
 #ifndef KCF_PWM_NUDGE
 #define KCF_PWM_NUDGE  1600u
@@ -114,7 +138,7 @@
 #define KCF_RF_SERVO_MS 300u   /* centre to lock at standstill */
 #endif
 #ifndef KCF_RF_REV_LEAD
-#define KCF_RF_REV_LEAD  1.0f  /* deg, plus the brake slide at the current speed */
+#define KCF_RF_REV_LEAD  0.0f  /* deg, plus the brake slide at the current speed */
 #endif
 #ifndef KCF_PWM_REV_SLOW
 #define KCF_PWM_REV_SLOW 1600u /* last KCF_RF_REV_SLOW deg of the reverse */
@@ -205,7 +229,7 @@ static void kcf_track(KcTask2 *t,const KcT2Input *i,int lock){
 }
 static void kcf_begin(KcTask2 *t,const KcT2Input *i){
  t->fstart=i->now;t->flast=i->odist;t->fk=0;t->fmode=0;t->fshort=0;t->framp_lr=KCF_RAMP_LR;t->framp_rl=KCF_RAMP_RL;t->framp_done=0;
- t->fkscale=1.0f;t->ftarget=0;t->fhead=0;t->fat=i->now;
+ t->fkscale=1.0f;t->ftarget=0;t->fhead=0;t->fat=i->now;t->fox=0;t->foy=0;
  if(t->cap==4){kc_event(t,"F_SERVO_TEST",KCF_RAMP_LR,KCF_RAMP_RL);kc_enter(t,KCT_F_SERVO_TEST,i->now);return;}
  /* Ask for the arrow immediately; the Pi keeps trying while we drive. */
  t->waiting_arrow=1;t->arrow=0;t->vision_failed=0;
@@ -218,7 +242,8 @@ static void kcf_take_arrow(KcTask2 *t,float front){
  if(t->arrow && !t->side1){t->side1=t->arrow;t->waiting_arrow=0;kc_event(t,"F_ARROW1",(float)t->side1,front);}
 }
 static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
- float px=i->oy,py=-i->ox,h=kc_rad(actual),front=px+KCF_AXLE_FRONT;
+ /* fox/foy: pose corrections the odometry cannot see (brake skid). */
+ float px=i->oy+t->fox,py=-i->ox+t->foy,h=kc_rad(actual),front=px+KCF_AXLE_FRONT;
  switch(t->phase){
  case KCT_F_RANGE:
   kcf_take_arrow(t,front);
@@ -282,7 +307,7 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
    if(KCF_FINISH_REVERSE){
     /* The lane hold is steering: start the prediction from the measured
      * path curvature, not the model's straight-ahead. */
-    KcfSim m=s;
+    KcfSim m=s;m.y-=KCF_RF_Y_TRIM;
     if(i->speed>15.0f)m.k=kc_rad(i->gyro)/i->speed;
     float target=x1+10.0f+KCF_AXLE_REAR+KCF_RF_REAR,xend=predict?kcf_rf_xend(m,opp,sg,t->framp_lr,t->framp_rl):0.0f;
     if(predict && px>=x1+KCF_RF_XS_MIN && xend>=target){t->fmode=4;t->ftarget=target;t->fkscale=1.0f;kc_event(t,"F_RF_XEND",xend,target);}
@@ -300,8 +325,9 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
      float sc=kc_max(0.85f,kc_min(1.2f,fabsf(kl)*i->speed/fabsf(kc_rad(i->gyro))));
      t->fkscale+=0.05f*(sc-t->fkscale);
     }
+    KcfSim st=s;st.y-=KCF_RF_Y_TRIM;
     if(predict && a>=kc_rad(KCF_RF_THETA-KCF_RF_DTHETA)-lead)
-     xend=kcf_rf_finish(s,sg,t->framp_lr,t->framp_rl,kcf_rs(opp),&hd);
+     xend=kcf_rf_finish(st,sg,t->framp_lr,t->framp_rl,kcf_rs(opp),&hd);
     if(a>=kc_rad(KCF_RF_THETA+KCF_RF_DTHETA)-lead || xend<=t->ftarget){
      /* The diagonal holds the heading the model says the turn settles at. */
      t->fmode=9;t->fhead=hd*57.29578f;t->fsw=i->odist;t->corrections=0;
@@ -313,28 +339,33 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
   case 5:if(sg*h>=-kcf_lead(side,t->framp_lr,t->framp_rl))t->fmode=6;break;
   case 9:  /* diagonal: brake where slide + reverse arc end on the centre line */
    if(i->odist-t->fsw>KCF_RF_DIAG_MAX){kc_fail(t,"ERROR_F_DIAGONAL",i->now);break;}
-   if(sg*h<0 && kcf_rf_run(py,h,kcf_rs(opp),sg)<=KCF_RF_SLIDE_S*i->speed){
+   if(sg*h<0 && kcf_rf_run(py-KCF_RF_Y_TRIM,h,kcf_rs(opp),sg)<=KCF_RF_SLIDE_S*i->speed+KCF_RF_SKID){
     t->fmode=10;
-    kc_event(t,"F_RF_BRAKE",px+KCF_RF_SLIDE_S*i->speed*cosf(h)-kcf_rs(opp)*fabsf(sinf(h)),i->speed);
+    kc_event(t,"F_RF_BRAKE",px+(KCF_RF_SLIDE_S*i->speed+KCF_RF_SKID)*cosf(h)-kcf_rs(opp)*fabsf(sinf(h)),i->speed);
    }
    break;
   case 10: /* braking, wheels straight; then correct the stop point if needed */
    if((still && kc_elapsed(i->now,t->fok,100)) || kc_elapsed(i->now,t->fat,1500)){
-    float err=sg*h<0?kcf_rf_run(py,h,kcf_rs(opp),sg):0.0f;
+    if(!t->corrections){  /* first stop after the diagonal: add the unseen skid */
+     t->fox+=KCF_RF_SKID*cosf(h);t->foy+=KCF_RF_SKID*sinf(h);
+     px+=KCF_RF_SKID*cosf(h);py+=KCF_RF_SKID*sinf(h);
+     kc_event(t,"F_RF_SKID",KCF_RF_SKID,py);
+    }
+    float err=sg*h<0?kcf_rf_run(py-KCF_RF_Y_TRIM,h,kcf_rs(opp),sg):0.0f;
     if(fabsf(err)>KCF_RF_NUDGE_TOL && t->corrections<2){
      t->corrections++;t->fsw=err;t->fmode=14;kc_event(t,"F_RF_NUDGE",err,(float)t->corrections);
     }else t->fmode=11;
    }
    break;
   case 14: /* short straight move along the diagonal, sign of fsw = direction */
-   if(t->fsw*kcf_rf_run(py,h,kcf_rs(opp),sg)<=fabsf(i->speed)*KCF_RF_SLIDE_S*fabsf(t->fsw)
+   if(t->fsw*kcf_rf_run(py-KCF_RF_Y_TRIM,h,kcf_rs(opp),sg)<=fabsf(i->speed)*KCF_RF_SLIDE_S*fabsf(t->fsw)
       || kc_elapsed(i->now,t->fat,2000))t->fmode=10;
    break;
   case 11: /* set the lock at standstill */
    if(kc_elapsed(i->now,t->fat,KCF_RF_SERVO_MS)){t->fmode=12;t->fsw=i->odist;}
    break;
   case 12: /* reverse on the lock back to heading 0 */
-   if(sg*h>=-(kc_rad(KCF_RF_REV_LEAD)+fabsf(i->speed)*KCF_RF_SLIDE_S/kcf_rs(opp)))t->fmode=13;
+   if(sg*h>=-(kc_rad(KCF_RF_REV_LEAD)+fabsf(i->speed)*KCF_RF_REV_SLIDE_S/kcf_rs(opp)))t->fmode=13;
    else if(t->fsw-i->odist>kcf_rs(opp)*kc_rad(KCF_RF_THETA+25.0f) || kc_elapsed(i->now,t->fat,4000)){
     kc_fail(t,"ERROR_F_REVERSE",i->now);break;
    }
@@ -400,7 +431,10 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
   }
   if(!kc_elapsed(i->now,t->entered,150))break;
   float c=cosf(h),s=sinf(h);
-  t->x=-(py+KCF_AXLE_CENTRE*s);t->y=px+KCF_AXLE_CENTRE*c;t->h=0;
+  /* The trim is where the robot really is relative to the odometry: hand
+   * the O2 code that corrected pose. */
+  float sg=t->side1==1?1.0f:-1.0f,ytrim=KCF_FINISH_REVERSE?KCF_RF_Y_TRIM:0.0f;
+  t->x=-(py-ytrim+KCF_AXLE_CENTRE*s);t->y=px+KCF_AXLE_CENTRE*c;t->h=0;
   kc_event(t,"F_O1_DONE",t->x,t->y);
   kc_event(t,"F_O1_TIME",(float)(i->now-t->fstart),actual);
   /* The O2 code assumes the centre line: off it, the ultrasonic looks past O2. */

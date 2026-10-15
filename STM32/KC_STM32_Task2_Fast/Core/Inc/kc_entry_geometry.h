@@ -10,7 +10,7 @@
 #define KC_ENTRY_GEOMETRY_H
 #include <math.h>
 #include <stdint.h>
-#define KCE_MAX_POSES 256
+#define KCE_MAX_POSES 320  /* 90 deg templates: 4 x (1+30+16+30) = 308 */
 #define KCE_MARGIN 5.0f
 /* Longest entry/trim diagonal (cm). Was 70: run 700394561 (O2 LEFT, wide O2,
  * 60 cm gaps) came home 67.6 out and needed 74. Footprint checks still apply. */
@@ -33,19 +33,24 @@ static int kce_overlap(const KcePose *p,float y,float xmin,float ymin,float xmax
  if(fabsf(-dx*p->s+dy*p->c)>l+rx*s+ry*c)return 0;
  return 1;
 }
-static int kce_template_to(float x,float target,float diagonal){
+/* turn 45: calibrated 45 deg turns. turn 90: the legacy 90 deg turn fits
+ * (LEFT 15.0 fwd / 31.0 side, RIGHT 20.5 / 38.0) for lanes too wide for a
+ * 45 deg diagonal; leg 1 is then a straight across, not a diagonal. */
+static int kce_template_turn(float x,float target,float diagonal,float turn){
  kce_count=0;kce_target=target;
  if(!isfinite(x)||!isfinite(diagonal)||diagonal<0||diagonal>KCE_MAX_DIAGONAL)return 0;
+ int wide=turn>60;
  for(unsigned model=0;model<2;model++)for(unsigned coast=0;coast<2;coast++){
   float px=x,py=0,h=180;
   kce_add(px,py,h);
   for(unsigned leg=0;leg<3;leg++){
    int left=(x>=0)?leg==2:leg==0;
-   float f=leg==1?diagonal+2*coast:(left?13.25f:18.0f);
-   float side=leg==1?0:(left?-13.0f:15.0f),dh=leg==1?0:(left?45.0f:-45.0f);
+   float f=leg==1?diagonal+2*coast:wide?(left?15.0f:20.5f):(left?13.25f:18.0f);
+   float side=leg==1?0:wide?(left?-31.0f:38.0f):(left?-13.0f:15.0f);
+   float dh=leg==1?0:(left?1.0f:-1.0f)*(wide?90.0f:45.0f);
    float r=h*KCE_PI,dx=side*cosf(r)-f*sinf(r),dy=f*cosf(r)+side*sinf(r);
-   unsigned steps=leg==1?16:20;
-   float length=hypotf(dx,dy)*1.02617215f;
+   unsigned steps=leg==1?16:wide?30:20;
+   float length=hypotf(dx,dy)*(wide?1.11072073f:1.02617215f); /* arc/chord */
    for(unsigned j=1;j<=steps;j++){
     float u=(float)j/steps,ox=u*dx,oy=u*dy;
     if(model && leg!=1){
@@ -62,7 +67,8 @@ static int kce_template_to(float x,float target,float diagonal){
  }
  return kce_count<KCE_MAX_POSES;
 }
-static int kce_template(float x,float diagonal){return kce_template_to(x,0,diagonal);}
+static int kce_template_to(float x,float target,float diagonal){return kce_template_turn(x,target,diagonal,45);}
+static inline int kce_template(float x,float diagonal){return kce_template_to(x,0,diagonal);} /* tests */
 static float kce_mouth(float o1_front){
  /* Rules: opening->O1 front >=60cm. Initial fresh-US anchor is allowed3cm
   * measurement uncertainty. Intersect with fully-inside50cm park bound. */
@@ -99,11 +105,20 @@ static int kce_reposition_clear(float x,float from,float to,float o1,float o2){
 }
 /* Pick the middle of the widest safe interval, not its barely-clear boundary.
  * Candidate range stays below the return-lane start already traversed. */
-static int kce_choose(float x,float current_y,float known_y,float o1,float o2,float *diagonal,float *chosen){
- float shift=x>=0?15+(13.25f-13)/1.414213562f:13+(18.0f-15)/1.414213562f;
- float d=roundf((fabsf(x)-shift)*1.414213562f);
- if(d==1)d=2;
- if(!kce_template(x,d))return 0;
+static int kce_choose_turn(float x,float current_y,float known_y,float o1,float o2,float *diagonal,float *chosen,float turn){
+ float d;
+ if(turn>60){
+  /* Two 90 deg turns already move 53 (x>=0: RIGHT 38 + LEFT 15 fwd) or
+   * 51.5 (x<0: LEFT 31 + RIGHT 20.5) toward the centre; drive the rest. */
+  d=roundf(fabsf(x)-(x>=0?53.0f:51.5f));
+  if(d<0 && d>-2.5f)d=0;
+  if(d<0)return 0;
+ }else{
+  float shift=x>=0?15+(13.25f-13)/1.414213562f:13+(18.0f-15)/1.414213562f;
+  d=roundf((fabsf(x)-shift)*1.414213562f);
+  if(d==1)d=2;
+ }
+ if(!kce_template_turn(x,0,d,turn))return 0;
  /* Entry location is constrained by O1/park geometry, not proximity to
   * the current pose. A distant O2 leaves a long safe straight before O1.
   * Check that whole connecting lane using kce_reposition_clear below. */
@@ -117,19 +132,28 @@ static int kce_choose(float x,float current_y,float known_y,float o1,float o2,fl
   }else run=0;
  }
  if(best<5)return 0; /* Insufficient interval for encoder/reposition residual. */
- *diagonal=d;*chosen=best_begin+(float)(best-1)*.5f;return 1;
+ *diagonal=d;*chosen=best_begin+(float)(best-1)*.5f;return kce_template_turn(x,0,d,turn);
+}
+static int kce_choose(float x,float current_y,float known_y,float o1,float o2,float *diagonal,float *chosen){
+ return kce_choose_turn(x,current_y,known_y,o1,o2,diagonal,chosen,45);
 }
 /* Bring a wide lane inward while still between the obstacles. Different
  * targets account for measured left/right turn translations. */
 static float kce_trim_target(float x){return x>=0?30.0f:-26.0f;}
-static int kce_trim_choose_to(float x,float target,float current_y,float o1,float o2,float *diagonal,float *chosen);
-static int kce_trim_choose_to(float x,float target,float current_y,float o1,float o2,float *diagonal,float *chosen){
- float shift=x>=0?15+(13.25f-13)/1.414213562f:13+(18.0f-15)/1.414213562f;
- float d=roundf((fabsf(x)-fabsf(target)-shift)*1.414213562f);
- if(d<2 || d>KCE_MAX_DIAGONAL)return 0;
+static int kce_trim_choose_turn(float x,float target,float current_y,float o1,float o2,float *diagonal,float *chosen,float turn){
+ float d;
+ if(turn>60){
+  d=roundf(fabsf(x)-fabsf(target)-(x>=0?53.0f:51.5f));
+  if(d<0 && d>-2.5f)d=0;
+  if(d<0 || d>KCE_MAX_DIAGONAL)return 0;
+ }else{
+  float shift=x>=0?15+(13.25f-13)/1.414213562f:13+(18.0f-15)/1.414213562f;
+  d=roundf((fabsf(x)-fabsf(target)-shift)*1.414213562f);
+  if(d<2 || d>KCE_MAX_DIAGONAL)return 0;
+ }
  unsigned best=0,run=0;float begin=0,best_begin=0;
  for(float y=ceilf(current_y-30);y<=floorf(current_y);y+=1){
-  if(!kce_template_to(x,target,d))return 0;
+  if(!kce_template_turn(x,target,d,turn))return 0;
   float end_y=y+kce_poses[kce_ends[0]].y;
   float end_x=kce_poses[kce_ends[0]].x;
   int clear=kce_clear(y,o1,o2) && kce_reposition_clear(x,current_y,y,o1,o2);
@@ -140,7 +164,10 @@ static int kce_trim_choose_to(float x,float target,float current_y,float o1,floa
  }
  if(best<5)return 0;
  *diagonal=d;*chosen=best_begin+(best-1)*.5f;
- return kce_template_to(x,target,d);
+ return kce_template_turn(x,target,d,turn);
+}
+static int kce_trim_choose_to(float x,float target,float current_y,float o1,float o2,float *diagonal,float *chosen){
+ return kce_trim_choose_turn(x,target,current_y,o1,o2,diagonal,chosen,45);
 }
 static int kce_trim_choose(float x,float current_y,float o1,float o2,float *diagonal,float *chosen){
  return kce_trim_choose_to(x,kce_trim_target(x),current_y,o1,o2,diagonal,chosen);

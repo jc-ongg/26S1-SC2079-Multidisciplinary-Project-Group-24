@@ -389,6 +389,7 @@ volatile uint8_t isRising = 0;
 
 /* KC Task2 sample generations: increment only after a real acquisition. */
 volatile uint32_t kc_us_seq=0,kc_ir_seq=0,kc_us_at=0,kc_ir_at=0,kc_imu_at=0;
+volatile uint32_t kc_imu_recoveries=0;
 static volatile uint8_t kc_native_fast_forward=0;
 
 volatile uint8_t ultrasonicReady = 0;
@@ -9681,6 +9682,37 @@ void ultrasonic(void *argument)
 //    /* USER CODE END readIMU */
 //}
 
+/* KC: the gyro read can fail until reset (robot 2026-10-15: no sample for
+ * 12-69 s, START refused). Free the bus (SCL pulses + STOP), reset the I2C
+ * peripheral and wake the ICM20948 again. delay_us() is not used: it shares
+ * TIM14 with the ultrasonic task. */
+static void kc_i2c_wait(void){for(volatile int n=0;n<200;n++){}}
+static void kc_i2c2_recover(void)
+{
+    GPIO_InitTypeDef g = {0};
+    HAL_I2C_DeInit(&hi2c2);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10 | GPIO_PIN_11, GPIO_PIN_SET);
+    g.Pin = GPIO_PIN_10 | GPIO_PIN_11;
+    g.Mode = GPIO_MODE_OUTPUT_OD;
+    g.Pull = GPIO_NOPULL;
+    g.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(GPIOB, &g);
+    kc_i2c_wait();
+    for (int k = 0; k < 9 && HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_11) == GPIO_PIN_RESET; k++)
+    {
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET); kc_i2c_wait();
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET); kc_i2c_wait();
+    }
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_11, GPIO_PIN_RESET); kc_i2c_wait();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET); kc_i2c_wait();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_11, GPIO_PIN_SET); kc_i2c_wait();
+    hi2c2.Instance->CR1 |= I2C_CR1_SWRST;
+    hi2c2.Instance->CR1 &= ~I2C_CR1_SWRST;
+    HAL_I2C_Init(&hi2c2);   /* MspInit puts PB10/PB11 back on I2C2 */
+    icm20948_init();
+    kc_imu_recoveries++;
+}
+
 void readIMU(void *argument)
 {
     /* USER CODE BEGIN readIMU */
@@ -9772,6 +9804,7 @@ void readIMU(void *argument)
      * ------------------------------------------------------------
      */
 
+    uint8_t imuFailures = 0;
     for (;;)
     {
         /*
@@ -9798,6 +9831,7 @@ void readIMU(void *argument)
              */
             lastAngleUpdateTime = HAL_GetTick();
 
+            if (++imuFailures >= 10) { imuFailures = 0; kc_i2c2_recover(); }
             osDelay(10);
             continue;
         }
@@ -9816,6 +9850,7 @@ void readIMU(void *argument)
             gyro_z_dps = 0.0f;
             lastAngleUpdateTime = HAL_GetTick();
 
+            if (++imuFailures >= 10) { imuFailures = 0; kc_i2c2_recover(); }
             osDelay(10);
             continue;
         }
@@ -9854,6 +9889,7 @@ void readIMU(void *argument)
 
         gyro_z_dps = gyro_z;
         kc_imu_at=HAL_GetTick();
+        imuFailures = 0;
         /*
          * --------------------------------------------------------
          * ANGLE INTEGRATION

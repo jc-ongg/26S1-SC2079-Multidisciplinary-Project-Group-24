@@ -8,15 +8,20 @@ static float simulated_o2_front=151.5f;
 static int commands[128];static unsigned amounts[128];
 static void start(int m,unsigned speed,unsigned n){assert(speed>0&&speed<=100);if(m!=KCT_FWD)assert(speed<=50);assert(n>0);commands[starts]=m;amounts[starts++]=n;brake_distance=0;}
 static float stop(void){stops++;return brake_distance;}
-static void event(const char *s,float a,float b){if(!strncmp(s,"ERROR_ENTRY",11))fprintf(stderr,"%s %.2f %.2f\n",s,a,b);}
+static unsigned wide_events;
+static void event(const char *s,float a,float b){
+ if(!strncmp(s,"ERROR_",6))fprintf(stderr,"%s %.2f %.2f\n",s,a,b);
+ if(!strncmp(s,"RETURN_LANE_CROSS",17) || !strcmp(s,"ENTRY_TURN"))wide_events++;
+}
 static KcT2Hooks hooks={start,stop,event,NULL};
 static KcT2Input input(void){KcT2Input i={0};i.now=1000;i.imu_at=1000;i.us_at=1000;i.ir_at=1000;i.gyro_ready=1;i.us_valid=1;i.us=60;i.left_ir=80;i.right_ir=80;return i;}
 static void advance(KcTask2 *t,KcT2Input *i){i->now+=100;i->us_at=i->ir_at=i->imu_at=i->now;i->us_seq++;i->ir_seq++;t->heartbeat=i->now;kc_step(t,i);}
 static void reset(void){starts=stops=0;brake_distance=0;}
+static float sim_front_edge=6,sim_back_edge=30,edge_run;
 static void simulate(unsigned a1,unsigned a2,unsigned cap){
  reset();KcTask2 t;KcT2Input i=input();assert(kc_start(&t,hooks,&i,77,cap));
  unsigned loops=0,previous_starts=0;enum KcPhase last=KCT_IDLE;
- for(;t.active&&loops<1600;loops++){
+ for(;t.active&&loops<4000;loops++){
   if(t.waiting_arrow){assert(!kc_arrow(&t,76,t.waiting_arrow,1));assert(kc_arrow(&t,77,t.waiting_arrow,t.waiting_arrow==1?a1:a2));}
   if(starts!=previous_starts){i.progress=0;previous_starts=starts;}
   i.motion_status=0;
@@ -31,13 +36,19 @@ static void simulate(unsigned a1,unsigned a2,unsigned cap){
   else i.us=40;
   float ir=20;
   if(t.phase==KCT_IR_EDGE || t.phase==KCT_O2_BACK_EDGE){
-   if(t.move_live){i.progress+=1;brake_distance=i.progress;}
-   ir=i.progress>=(t.phase==KCT_IR_EDGE?6:30)?80:20;
+   /* Face length left from where following starts (wide O2: whole 100 cm
+    * moves run out and EDGE_CONTINUE takes over). */
+   if(t.move_live){i.progress+=1;brake_distance=i.progress;if(i.progress>=t.amount)i.motion_status=1;}
+   edge_run+=t.move_live?1:0;
+   ir=edge_run>=(t.phase==KCT_IR_EDGE?sim_front_edge:sim_back_edge)?80:20;
   }else if(t.phase==KCT_O1_EDGE){
+   edge_run=0;
    i.progress+=1;brake_distance=i.progress;
    i.motion_status=i.progress>=t.amount?1:0;
-   ir=i.progress>=4 && i.progress<14?20:80;
-  }
+   /* Side IR reaches O1 only from a normal lane. From a wide-O2 lane it can
+    * still see something else ~36 cm away (robot 2026-10-15), never O1. */
+   ir=i.progress>=4 && i.progress<14?(fabsf(t.x)<50?20:36):80;
+  }else edge_run=0;
   i.left_ir=i.right_ir=24.6f;
   if(t.phase!=KCT_PARK){if(a2==1)i.right_ir=ir;else i.left_ir=ir;}
   advance(&t,&i);
@@ -55,6 +66,18 @@ int main(void){
   simulated_o2_front=71.5f+10+(spacing?150:60);
   for(unsigned a=1;a<=2;a++)for(unsigned b=1;b<=2;b++)simulate(a,b,0);
  }
+ /* Very wide O2 (robot 2026-10-15: ~140 cm): front edge ~37 cm along the
+  * face, back face ~135 cm; the return lane ends 80-95 cm out and needs the
+  * 90 deg crossing. All arrows, short and long O1-O2 gaps. */
+ for(unsigned spacing=0;spacing<3;spacing++){
+  simulated_o2_front=71.5f+10+(spacing==0?60:spacing==1?81:150);
+  sim_front_edge=37;sim_back_edge=135;
+  unsigned crossings=0;
+  for(unsigned a=1;a<=2;a++)for(unsigned b=1;b<=2;b++){wide_events=0;simulate(a,b,0);crossings+=wide_events>0;}
+  fprintf(stderr,"wide O2, gap %.0f: 4/4 parked, %u used the 90 deg crossing\n",simulated_o2_front-81.5f,crossings);
+  assert(spacing==2 || crossings==4); /* a 150 cm gap has room for the 45 deg trim */
+ }
+ sim_front_edge=6;sim_back_edge=30;
  simulated_o2_front=151.5f;
  reset();KcTask2 t;KcT2Input i=input();i.gyro=24;assert(!kc_start(&t,hooks,&i,1,1));assert(starts==0);
  i=input();assert(kc_start(&t,hooks,&i,1,1));i.now+=2100;i.imu_at=i.now;kc_step(&t,&i);assert(t.phase==KCT_ERROR&&starts==0);
@@ -138,6 +161,21 @@ int main(void){
  /* LEFT route still goes directly into its previously tested right turn. */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,3));t.phase=KCT_O2_BACK_TURN;t.side2=1;
  advance(&t,&i);assert(t.move==KCT_RIGHT&&t.amount==90);
+ /* Wide O2 (robot 2026-10-15, ~114 cm): the back leg used up its 100 cm move
+  * with the face still beside it. Keep following, at most twice more. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.side2=1;t.acquired=1;t.edge_segments=0;
+ kc_begin_move(&t,KCT_FWD,16,100,KCT_O2_BACK_EDGE,i.now);t.edge_started=i.now;assert(starts==1);
+ i.right_ir=20;i.motion_status=1;advance(&t,&i);
+ assert(t.active&&t.phase==KCT_O2_BACK_EDGE&&t.move_live&&starts==2&&t.amount==60);
+ advance(&t,&i);assert(t.active&&starts==3);
+ advance(&t,&i);assert(!t.active&&t.phase==KCT_ERROR&&starts==3);
+ i.motion_status=0;
+ /* Move ends with nothing beside the robot (end missed): never drive on. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.side2=1;t.acquired=1;t.edge_segments=0;
+ kc_begin_move(&t,KCT_FWD,16,100,KCT_O2_BACK_EDGE,i.now);t.edge_started=i.now;
+ i.right_ir=50;i.motion_status=1;advance(&t,&i);
+ assert(!t.active&&t.phase==KCT_ERROR&&starts==1);
+ i.motion_status=0;
  /* Reported physical parking: valid front gap, asymmetric side readings,
   * sum 57.7 cm. Fresh stable side samples must confirm after settling. */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_PARK;t.entered=i.now;
@@ -148,9 +186,14 @@ int main(void){
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_PARK;t.entered=i.now;
  i.us=12.61f;i.left_ir=80;i.right_ir=18.3f;
  for(int k=0;k<3;k++)advance(&t,&i);
+#if KC_PARK_REQUIRE_WALLS
  assert(t.active&&t.phase==KCT_PARK&&starts==0);
  for(int k=0;k<22&&t.active;k++)advance(&t,&i);
  assert(!t.active&&t.phase==KCT_ERROR&&starts==0);
+#else
+ /* Wall check off: the front gap alone parks, still without more travel. */
+ assert(!t.active&&t.phase==KCT_DONE&&starts==0);
+#endif
  assert(kc_forward_pwm_limit(9,0)==850&&kc_forward_pwm_limit(9,1)==850);
  assert(kc_forward_pwm_limit(15,0)==3000&&kc_forward_pwm_limit(15,1)==3000);
  assert(kc_forward_pwm_limit(30,1)==5000&&kc_forward_pwm_limit(60,1)==0);
@@ -194,7 +237,12 @@ int main(void){
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_PARK;t.entered=i.now;
  i.us=5.54f;i.left_ir=80;i.right_ir=20;
  for(int k=0;k<24&&t.active;k++)advance(&t,&i);
+#if KC_PARK_REQUIRE_WALLS
  assert(t.phase==KCT_ERROR&&starts==0);
+#else
+ /* Wall check off: one bounded 7 cm retreat back along the entry path. */
+ assert(t.phase==KCT_MOVE&&t.move==KCT_REV&&t.amount==7&&starts==1);
+#endif
  /* A second too-close episode cannot trigger repeated reversing. */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_PARK;t.entered=i.now;t.park_reversed=1;
  i.us=5.54f;i.left_ir=25;i.right_ir=24;
@@ -219,7 +267,12 @@ int main(void){
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_PARK;t.entered=i.now;t.expected_range=18.55f;
  i.us=11.94f;i.left_ir=80;i.right_ir=24;
  for(int k=0;k<40&&t.active;k++)advance(&t,&i);
+#if KC_PARK_REQUIRE_WALLS
  assert(t.phase==KCT_ERROR&&starts==0);
+#else
+ /* Wall check off: after the one stopped recheck, the inside gap parks. */
+ assert(t.phase==KCT_DONE&&t.park_recheck_used&&starts==0);
+#endif
  /* Reported90.17cm approach:40cm then38cm, rechecked against ACTUAL travel. */
  reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.phase=KCT_PARK;t.entered=i.now;
  i.us=90.17f;i.left_ir=25;i.right_ir=24;
@@ -355,9 +408,23 @@ int main(void){
  assert(staged_y-entry>40); /* Long straight connection must be checked. */
  assert(kce_reposition_clear(end_x,staged_y,entry,72.95f,231.50f));
  assert(!kce_reposition_clear(0,staged_y,entry,72.95f,231.50f)); /* O1 blocks centreline. */
- /* An unmodelled wide lane cannot silently fall back to the old diagonal. */
- reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
+ /* Robot 2026-10-15: from a lane 100 cm out the side IR saw an object 36 cm
+  * away during the O1 search; taking it for O1 moved the pose 54 cm and the
+  * 45 deg entry hit the carpark wall. Inconsistent readings are ignored. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));t.side2=1;t.h=180;i.heading=180;
+ t.x=100;t.y=90;t.o1_front=71.6f;t.o2_front=172;t.return_y=150;
+ kc_begin_move(&t,KCT_FWD,12,30,KCT_O1_EDGE,i.now);i.right_ir=36;
+ for(int k=0;k<30&&t.phase==KCT_O1_EDGE;k++){i.progress=(float)k;advance(&t,&i);}
+ assert(t.active&&t.phase!=KCT_O1_EDGE&&fabsf(t.x-100)<0.5f);
+ i.progress=0;
+ /* A very wide lane never falls back to the old 45 deg diagonal: it uses the
+  * modelled 90 deg crossing (same footprint checks) ... */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));wide_events=0;
  t.phase=KCT_RETURN_CLEAR;t.x=100;t.y=120;t.o1_front=73;t.o2_front=143;t.h=180;i.heading=180;
+ advance(&t,&i);assert(t.active&&wide_events>0);
+ /* ... and a lane beyond even that (straight across > 85 cm) still stops. */
+ reset();i=input();assert(kc_start(&t,hooks,&i,1,0));
+ t.phase=KCT_RETURN_CLEAR;t.x=200;t.y=120;t.o1_front=73;t.o2_front=143;t.h=180;i.heading=180;
  advance(&t,&i);assert(t.phase==KCT_ERROR&&starts==0);
  puts("Task2 native state-machine scenarios passed (four arrow combinations + guards).");return 0;
 }

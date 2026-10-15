@@ -160,6 +160,7 @@ static uint8_t kc_platform_tick(MotorCommand_t command,uint8_t entering){
    * heading check. Start every run with it on the actual heading. */
   taskENTER_CRITICAL();desiredHeading=i.heading;taskEXIT_CRITICAL();
   kc_platform_event("HEADING_ORIGIN",i.heading,0);kc_platform_event("HEADING_FEEDBACK",1,2);kc_active=1;
+  if(kc_imu_recoveries)kc_platform_event("IMU_RECOVERIES",(float)kc_imu_recoveries,0);
  }
  if(kc_sub_live){
   uint8_t status=0;
