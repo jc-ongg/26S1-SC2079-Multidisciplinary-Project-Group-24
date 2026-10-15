@@ -79,6 +79,7 @@ typedef struct {
  int move;
  float x,y,h, origin_heading, move_heading, start_x,start_y, amount;
  float o1_gap,o1_front,o2_front, us_anchor, group[3], range, last_progress;
+ float o1_votes[12];          /* fast O1 start: echoes for the O1 range vote */
  float expected_range, target, back_gap, edge_progress, metric[2], gap;
  float expected_heading, centre_diagonal, entry_y, return_y, centre_turn, trim_turn, turn_ox, turn_oy, turn_h0, us_rej_ref, o2_end_x, back_fast_until;
  unsigned speed;

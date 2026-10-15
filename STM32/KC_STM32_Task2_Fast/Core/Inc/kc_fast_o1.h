@@ -50,6 +50,16 @@
 #define KCF_T_RL 0.596f
 #define KCF_SLOW_ZONE   30.0f  /* drop to turn PWM this far before the trigger */
 #define KCF_DECIDE      15.0f  /* still no arrow this far before the trigger: stop and wait */
+/* O1 range at START, standing: 12 echoes (~1 s), then the FARTHEST group
+ * of at least 3 within 4 cm. Robot logs 2026-10-16: at 120-150 cm, 30-50%
+ * of echoes read short (62-121: the floor, nearer things; the HC-SR04
+ * reports the first echo, never one beyond O1) while the true range
+ * repeats. One run read 122 68 62 68 105 62 118: the short 62-68 echoes
+ * outnumber the real ones, so a majority vote fails there, and the first 3
+ * agreeing echoes could also have been 62-68 (swerve ~55 cm early). */
+#define KCF_RANGE_N     12
+#define KCF_RANGE_AGREE  3
+#define KCF_RANGE_TOL  4.0f
 #define KCF_O2_GUARD    18.0f  /* brake if US sees something this close while turning back */
 
 /* Reverse finish (fits the 60 cm O1-O2 gap). After the lane beside O1:
@@ -247,9 +257,31 @@ static void kcf_step(KcTask2 *t,const KcT2Input *i,float actual){
  switch(t->phase){
  case KCT_F_RANGE:
   kcf_take_arrow(t,front);
-  if(!kc_us_group(t,i,NAN,180.0f)){
-   if(kc_elapsed(i->now,t->entered,3500))kc_fail(t,"ERROR_US_UNRELIABLE",i->now);
+  if(i->us_seq!=t->us_seen){
+   t->us_seen=i->us_seq;
+   if(i->us_valid && isfinite(i->us) && i->us>2 && i->us<=180 && !kc_elapsed(i->now,i->us_at,250) && t->samples<KCF_RANGE_N)
+    t->o1_votes[t->samples++]=i->us;
+  }
+  if(t->samples<KCF_RANGE_N){
+   if(kc_elapsed(i->now,t->entered,5000))kc_fail(t,"ERROR_US_UNRELIABLE",i->now);
    break;
+  }
+  {
+   /* The farthest echo with at least KCF_RANGE_AGREE within KCF_RANGE_TOL
+    * (itself included): short echoes cannot outvote it. */
+   int best=-1,bn=0;
+   for(int a=0;a<KCF_RANGE_N;a++){
+    int n=0;for(int b=0;b<KCF_RANGE_N;b++)n+=fabsf(t->o1_votes[b]-t->o1_votes[a])<=KCF_RANGE_TOL;
+    if(n>=KCF_RANGE_AGREE && (best<0 || t->o1_votes[a]>t->o1_votes[best])){bn=n;best=a;}
+   }
+   kc_event(t,"F_O1_RANGE_VOTES",(float)bn,(float)KCF_RANGE_N);
+   if(best<0){t->samples=0;break;}   /* no group of KCF_RANGE_AGREE: 12 fresh echoes */
+   /* Median of the agreeing echoes (insertion sort of at most 12). */
+   float g[KCF_RANGE_N];int n=0;
+   for(int b=0;b<KCF_RANGE_N;b++)if(fabsf(t->o1_votes[b]-t->o1_votes[best])<=KCF_RANGE_TOL){
+    float v=t->o1_votes[b];int k=n++;while(k>0 && g[k-1]>v){g[k]=g[k-1];k--;}g[k]=v;
+   }
+   t->range=n%2?g[n/2]:0.5f*(g[n/2-1]+g[n/2]);t->samples=0;
   }
   /* The reverse finish may start its swerve from a standstill (the model is per cm). */
   if(t->range<kc_max(KCF_D_TRIG_L,KCF_D_TRIG_R)+kcf_trig_extra()+(KCF_FINISH_REVERSE?2.0f:8.0f)){kc_fail(t,"ERROR_START_TOO_CLOSE",i->now);break;}
