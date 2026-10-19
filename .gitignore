@@ -1,36 +1,34 @@
-
-# macOS
-.DS_Store
-**/.DS_Store
-
-# STM32CubeIDE build output
-STM32/Debug/
-STM32/Release/
-
-# Local runtimes and generated artifacts are never source changes.
+# Local environments and generated files
 **/.venv*/
 **/venv/
 **/__pycache__/
 *.py[cod]
 **/node_modules/
-/output/
-/tmp/
+**/build/
+**/Debug/
+**/Release/
+**/.gradle/
+**/.kotlin/
+**/local.properties
+**/.idea/
 **/uploads/
 **/own_results/
 **/runs/
+**/captures/
+**/logs/
 *.log
 logfile.txt
-/RPi/captures/
-/RPi/task2/KC_o1_auto_*
-
-# Per-machine Android/IDE state and build output.
-**/.gradle/
-**/.kotlin/
-**/build/
-**/local.properties
-**/.idea/workspace.xml
-**/.idea/deploymentTargetSelector.xml
-
-# Models are release assets; existing tracked weights remain tracked.
 *.onnx
 *.pt
+*.hex
+*.elf
+*.bin
+*.map
+*.list
+*.apk
+.DS_Store
+/output/
+/tmp/
+/.gitignore-local
+**/KC_native_images_*/
+**/KC_native_task2_*.jsonl
