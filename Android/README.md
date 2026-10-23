@@ -1,8 +1,12 @@
-# Android tablet application
+# The Odyssey — Android tablet application
 
 [← Project overview](../README.md)
 
 One Kotlin application provides arena configuration, Bluetooth communication and task controls. Its arena uses **20 × 20 cells**, with **10 cm per cell**.
+
+<p align="center">
+  <img src="../.github/assets/tablet-map-configuration.jpg" alt="The Odyssey map configuration screen with three obstacles and the robot at its starting position" width="360">
+</p>
 
 ## Build and install
 

@@ -1,4 +1,4 @@
-# MDP · Group 24
+# The Odyssey · MDP Group 24
 
 **Autonomous image recognition and obstacle navigation**
 
@@ -7,6 +7,10 @@ SC2079 Multidisciplinary Project · Nanyang Technological University · AY 2026/
 A robot car that plans routes around an arena, recognises image cards, follows arrow-directed obstacle manoeuvres and returns to its carpark. An Android tablet provides the map and controls; a Raspberry Pi coordinates the laptop services and STM32 motor controller.
 
 [Results](#assessment-results) · [Architecture](#system-architecture) · [Getting started](#getting-started) · [Team](#team) · [Source submission](#source-submission)
+
+| The robot and Task 2 course | The Odyssey tablet app |
+| :---: | :---: |
+| <img src=".github/assets/task2-robot-arena.jpg" alt="Group 24 robot in the carpark facing the two arrow-marked Task 2 obstacles" width="660"> | <img src=".github/assets/tablet-map-configuration.jpg" alt="The Odyssey tablet app showing the robot start, three obstacles and map configuration controls" width="250"> |
 
 ## The two challenges
 
@@ -116,6 +120,8 @@ python3 KC_task2_stm32_bridge.py --execute --stage full-pi-return --port /dev/tt
 The laptop and Pi must be reachable on the same network. Both recognition services normally use port **8001**, so start the service for the selected task. Only one Pi controller should own the serial port or camera at a time.
 
 ## Team
+
+![Group 24 with the project robot](.github/assets/group24-team.jpg)
 
 | Crew | Component | Members |
 | --- | --- | --- |
