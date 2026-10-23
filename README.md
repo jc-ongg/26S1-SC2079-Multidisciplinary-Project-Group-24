@@ -1,80 +1,149 @@
-# SC2079 MDP - Group 24
+# MDP · Group 24
 
-This repository contains the selected Task 1 and Task 2 implementations, organised into four components.
+**Autonomous image recognition and obstacle navigation**
 
-| Folder | Contents |
+SC2079 Multidisciplinary Project · Nanyang Technological University · AY 2026/27 Semester 1
+
+A robot car that plans routes around an arena, recognises image cards, follows arrow-directed obstacle manoeuvres and returns to its carpark. An Android tablet provides the map and controls; a Raspberry Pi coordinates the laptop services and STM32 motor controller.
+
+[Results](#assessment-results) · [Architecture](#system-architecture) · [Getting started](#getting-started) · [Team](#team) · [Source submission](#source-submission)
+
+## The two challenges
+
+| | Task 1 — Image recognition | Task 2 — Fastest path |
+| --- | --- | --- |
+| **Objective** | Visit the obstacles and identify their image cards. | Navigate two arrow-marked obstacles and return to the carpark. |
+| **Planning** | A* motion search, camera-pose selection and visit ordering on the laptop. | STM32 obstacle manoeuvres followed by a Pi-planned return and parking sequence. |
+| **Vision** | A 31-class ONNX symbol-recognition service. | A separate LEFT/RIGHT arrow-recognition service. |
+| **Coordination** | The Pi prepares a route, confirms READY to the tablet, then executes after Start. | The Pi supplies camera results and heartbeats while STM32 handles O1/O2. |
+
+The tasks use separate firmware and Pi entry points because different firmware was flashed for each assessment. The Android application is shared.
+
+## Assessment results
+
+| Assessment | Rank | Run time | Recorded result |
+| --- | ---: | ---: | --- |
+| **Task 1 — rerun** | **13** | **1m 14s** | **6 correct**, 0 incorrect · **60 points** |
+| **Task 2** | **10** | **25.6s** | **0 hits**, 0 penalty · **25.6s final score** |
+
+Task 2 preparation time was **1m 07s**. Results are transcribed from the Group 24 entries in the assessment scoreboards supplied by the team.
+
+<details>
+<summary>Task 1 assessment note</summary>
+
+The team reports that its first attempt recognised **8/8 images**, but the attempt was disqualified because of Bluetooth connectivity issues at startup. The table above shows the official recorded rerun result; the first attempt is not counted toward that score.
+
+</details>
+
+## System architecture
+
+```mermaid
+flowchart LR
+    Tablet["Android tablet<br/>Map setup · task controls · results"]
+    Pi["Raspberry Pi<br/>Task coordination · camera · communications"]
+    Laptop["Laptop<br/>Path planning · image recognition"]
+    STM["STM32F407<br/>Motor control · steering · sensors"]
+    Tablet <-->|Bluetooth RFCOMM| Pi
+    Pi <-->|Wi-Fi / HTTP| Laptop
+    Pi <-->|USB serial| STM
+```
+
+| Component | Responsibility | Guide |
+| --- | --- | --- |
+| **Algorithm & vision** | Viewing poses, visit ordering, movement commands and image recognition. | [Algo](Algo/README.md) |
+| **Raspberry Pi** | Tablet communication, route execution, camera capture and Task 2 return/parking. | [RPi](RPi/README.md) |
+| **STM32** | Motor and steering control, sensors and task-specific movement. | [STM32](STM32/README.md) |
+| **Android** | Arena editing, Bluetooth, task controls and result display. | [Android](Android/README.md) |
+
+### Task 1 flow
+
+1. Place the robot and obstacles on the tablet's **20 × 20** arena, then send the map.
+2. The Pi requests a route from the laptop. The planner chooses viewing positions and visit order, then returns calibrated movement commands.
+3. The Pi queues the route and sends a matching **READY** confirmation. Start releases that prepared route.
+4. The robot visits each reachable target. The Pi captures photos, requests recognition and sends the identified image IDs to the tablet.
+
+### Task 2 flow
+
+1. STM32 approaches O1 while the Pi obtains its arrow classification.
+2. The firmware carries out the selected O1 bypass and O2 manoeuvres using encoder, heading and range feedback.
+3. With `full-pi-return`, the Pi reads the run telemetry and plans the return and carpark entry.
+4. The robot returns and completes its parking sequence.
+
+## Repository layout
+
+```text
+.
+├── Algo/
+│   ├── PathPlanning/             # Task 1 planner and movement commands
+│   ├── ImageRecognition/
+│   │   ├── Task1/                # Symbol recognition API
+│   │   └── Task2/                # Arrow recognition API
+│   └── Services/                 # Laptop setup, launchers and test fixtures
+├── Android/                      # Shared tablet application and Gradle project
+├── RPi/
+│   ├── Task1/                    # Route preparation, execution and recognition
+│   └── Task2/                    # Camera bridge and return/parking controller
+├── STM32/
+│   ├── Task1/                    # Task 1 STM32CubeIDE project
+│   └── Task2/                    # Task 2 STM32CubeIDE project
+├── build_submission.py           # Source-only TXT archive generator
+└── README.md
+```
+
+`main` contains the final selected implementations. Build files, Android resources and firmware libraries remain in the repository so the projects can be rebuilt. Model weights, environments, captures and build output are excluded from Git.
+
+## Getting started
+
+| Step | Action |
 | --- | --- |
-| `Algo/PathPlanning` | Task 1 route planning, command generation and tests |
-| `Algo/ImageRecognition/Task1` | Task 1 symbol recognition API |
-| `Algo/ImageRecognition/Task2` | Task 2 LEFT/RIGHT arrow recognition API |
-| `Algo/Services` | Laptop service setup and launchers |
-| `STM32/Task1` | Task 1 STM32CubeIDE project |
-| `STM32/Task2` | Task 2 STM32CubeIDE project |
-| `RPi/Task1` | Task 1 Pi controller, camera and communications |
-| `RPi/Task2` | Task 2 camera/heartbeat bridge and Pi return/parking |
-| `Android` | One Android application shared by both tasks |
+| **1. Laptop** | Set up Python and obtain the task's recognition model. See [Algo setup](Algo/README.md#setup). |
+| **2. Firmware** | Build and flash the matching task project. See [STM32 setup](STM32/README.md#build-and-flash). |
+| **3. Raspberry Pi** | Deploy the matching Pi directory and set the laptop address. See [Pi startup](RPi/README.md#run-task-1). |
+| **4. Tablet** | Build the app, pair with the Pi and configure the arena. See [Android setup](Android/README.md#build-and-install). |
 
-Task 1 is retained from GitHub `main`; Task 2 is the selected `v19b-fix` implementation, including its Pi-driven return and arrow API. The shared starting snapshot is `27cb0792`. Older experiments and handovers remain in Git history.
-
-## Run Task 1
-
-Use Python 3.11 or later. From the repository root on the laptop:
+For Task 1, start the laptop services from the repository root:
 
 ```powershell
-py -3.11 -m venv Algo/.venv-cv-win
-.\Algo\.venv-cv-win\Scripts\python.exe -m pip install -r Algo/requirements.txt
 .\Algo\.venv-cv-win\Scripts\python.exe Algo/Services/laptop_start.py --python .\Algo\.venv-cv-win\Scripts\python.exe
 ```
 
-Place `best_v11i_m.onnx` in `Algo/ImageRecognition/Task1/`. `Algo/Services/laptop_setup.py` can fetch and checksum-verify the `cv-model-v11i` release with an authenticated GitHub CLI. Its separate environment setup uses the retained pinned dependency lists and requires Python 3.12/3.13 or uv. The launcher runs the planner on port 8000 and recognition on 8001; `--check` opens no services.
-
-Deploy the contents of `RPi/Task1` to the Pi, install its requirements, then run:
-
-```bash
-LAPTOP_IP=<laptop-wifi-ip> python3 -u task1_main.py
-```
-
-Use system Picamera2/libcamera or the rpicam-still fallback. Only one controller may own STM32 serial, and only one program may own the camera. The planner uses speed 50, a 10 cm grid and 40 cm turn clearance. Send the Android map, wait for READY, then Start. A valid partial route can run.
-
-## Run Task 2
-
-Install `Algo/ImageRecognition/Task2/requirements.txt` in a separate laptop environment. Download the trained arrow checkpoint from [its upstream repository](https://github.com/PranavU-Coder/arrow_detection/tree/335c0dc275769edd902c5bb41a99992fa12fff9c), file `runs/detect/train/weights/best.pt`, and place it at `Algo/ImageRecognition/Task2/models/best_yolo11m_arrows.pt`. The server verifies SHA-256 `5098030850b53b7a49ae7ef6ce3942e25d4863f5308dd71c814c7cd4330fd821`. The upstream licence governs the model; weights are not tracked here.
-
-```bash
-python Algo/ImageRecognition/Task2/main.py --port 8001
-```
-
-Stop Task 1 recognition before using the same port. Deploy `RPi/Task2` to the Pi and install its requirements. With the matching Task 2 firmware flashed, run from that deployed directory:
+For Task 2, start its separate arrow service and, from the deployed Pi Task 2 directory, use:
 
 ```bash
 python3 KC_task2_stm32_bridge.py --execute --stage full-pi-return --port /dev/ttyACM0 --laptop-ip <laptop-wifi-ip>
 ```
 
-Omitting `--execute` prints a dry-run description. STM32 handles O1/O2; the Pi supplies arrows/heartbeats and drives the return/parking. The bridge retries recognition according to its stationary/moving-frame policy.
+The laptop and Pi must be reachable on the same network. Both recognition services normally use port **8001**, so start the service for the selected task. Only one Pi controller should own the serial port or camera at a time.
 
-## Firmware and Android
+## Team
 
-Import `STM32/Task1` and `STM32/Task2` as separate existing STM32CubeIDE projects, named `MDP_Task1` and `MDP_Task2`. Each retains its HAL/CMSIS, FreeRTOS, linker scripts and board configuration. Rebuild and flash the appropriate task. The root main.c in each project contains the integrated motor/sensor logic; Task 2 adds the `kc_*.h` helpers and platform adapter.
+| Crew | Component | Members |
+| --- | --- | --- |
+| **Shipwrights** | STM32 | Ethan Loh Wenxi<br>Tan Kia Chun (Chen Jiajun)<br>Murugesan Nuvaan |
+| **Cartographer** | Android | Jacob Ong Jia Chun |
+| **Captains** | Raspberry Pi | Tan Jou Yuan (Chen Jouyuan)<br>Matz Chan |
+| **Navigators** | Algorithm | Jacob Loh Jun Cong<br>Baskar Kayalvizhi Athithiya |
 
-Open `Android` in Android Studio. Its Gradle wrapper, resources and SDK configuration are retained. Pair the tablet with the Pi and use the same app for both tasks.
+## Validation
 
-## Offline checks
+The repository includes planner regressions, mock-based Pi/controller tests, recognition API tests, Android unit tests and portable C firmware simulations. Commands and their scope are documented in the component guides.
 
-Using a Python environment with the laptop dependencies:
-
-```bash
-python -B -m unittest discover -s Algo/PathPlanning/tests -v
-python -B RPi/Task1/tests/test_offline.py
-python -B -m unittest discover -s Algo/Services/tests -v
-python -B -m unittest discover -s Algo/ImageRecognition/Task1/tests -v
-```
-
-Run `python -m unittest test_bridge -v` and `python test_pi_return.py` from `RPi/Task2`. Run `python -m unittest test_api -v` from the Task 2 image-recognition directory; real-model replay is skipped when the checkpoint/photos are unavailable. From `STM32/Task2`, compile the classic O1 suite with `gcc -std=gnu11 -O2 -ICore/Inc -DKC_FAST_O1=0 test_task2.c -lm -o test_task2`. Compile `test_fast_o1.c`, `test_o1_range.c` and `test_platform_settle.c` with the same flags but omit `-DKC_FAST_O1=0`; those exercise the selected fast O1 and its adapter. Hardware execution is separate from these checks.
+The cleaned implementation was checked with an Android debug build and unit tests, the Python offline suites, **144 Pi-return simulations**, three portable C suites and nominal left/right fast-O1 simulations. These checks complement the assessment results; they do not establish clearance under every physical configuration. The [firmware guide](STM32/README.md#calibration-and-test-limits) records the wider stress-test limitations.
 
 ## Source submission
+
+From the repository root:
 
 ```bash
 python build_submission.py
 ```
 
-This creates only `output/MDP_2026-27S1-TEAM-24_Source_Code.zip`. It contains one combined component tree, source files renamed to `original.extension.txt`, a README and SHA-256 manifest. Configurations, resources, libraries, generated support, weights and binaries remain out of the submission. The repository retains build support so it can still be rebuilt. `output` is ignored by Git.
+This creates one file:
+
+```text
+output/MDP_2026-27S1-TEAM-24_Source_Code.zip
+```
+
+The archive keeps the four component folders and task-specific source. Every source file is renamed to **`original.extension.txt`** and is accompanied by a README and SHA-256 manifest. Configurations, resources, libraries, generated support code, trained weights and binaries are excluded in accordance with the source-code submission instructions. `output` is local and ignored by Git.
+
+External model attribution and existing component licence notices are retained. Model sources and checkpoint checksums are listed in the [Algo guide](Algo/README.md#recognition-models).
